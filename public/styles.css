@@ -2,6 +2,10 @@
   --teal: #0f9d84;
   --teal-dark: #0b7d6a;
   --teal-light: #e4f6f2;
+  --amber: #f2a541;
+  --amber-light: #fdf0dc;
+  --violet: #8b5cf6;
+  --violet-light: #efe8ff;
   --owe-red: #d9534f;
   --owe-red-bg: #fdecea;
   --owed-green: #1a9b6c;
@@ -12,7 +16,7 @@
   --bg: #f6f8f8;
   --card: #ffffff;
   --radius: 16px;
-  --shadow: 0 2px 10px rgba(15, 40, 35, 0.08);
+  --shadow: 0 3px 14px rgba(15, 40, 35, 0.10);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -25,6 +29,13 @@ html, body {
   color: var(--ink);
   height: 100%;
   -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(15, 157, 132, 0.10), transparent 40%),
+    radial-gradient(circle at 92% 18%, rgba(242, 165, 65, 0.10), transparent 38%),
+    var(--bg);
 }
 
 body {
@@ -52,12 +63,38 @@ input, select {
 
 /* ---------- Header ---------- */
 .hero {
-  background: linear-gradient(135deg, var(--teal), var(--teal-dark));
+  background: linear-gradient(135deg, #14b89b 0%, var(--teal) 48%, #0a6a5a 100%);
   color: white;
   padding: 20px 20px 28px;
-  border-radius: 0 0 24px 24px;
+  border-radius: 0 0 26px 26px;
   position: relative;
+  overflow: hidden;
 }
+
+.hero::before, .hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.hero::before {
+  width: 180px;
+  height: 180px;
+  background: radial-gradient(circle, rgba(255,255,255,0.16), transparent 70%);
+  top: -70px;
+  right: -50px;
+}
+
+.hero::after {
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(242,165,65,0.22), transparent 70%);
+  bottom: -60px;
+  left: -30px;
+}
+
+.hero > * { position: relative; z-index: 1; }
 
 .hero-top {
   display: flex;
@@ -100,10 +137,14 @@ input, select {
   border-radius: 12px;
   padding: 10px 12px;
   flex: 1;
+  border: 1px solid rgba(255,255,255,0.14);
 }
 
-.total-chip .label { font-size: 12px; opacity: 0.85; }
-.total-chip .value { font-size: 18px; font-weight: 700; margin-top: 2px; }
+.total-chip.owed { background: rgba(255,255,255,0.22); }
+.total-chip.owe { background: rgba(242, 165, 65, 0.22); border-color: rgba(242, 165, 65, 0.3); }
+
+.total-chip .label { font-size: 12px; opacity: 0.9; }
+.total-chip .value { font-size: 19px; font-weight: 800; margin-top: 2px; }
 
 /* ---------- Sections ---------- */
 .section {
@@ -483,4 +524,127 @@ input[type="checkbox"] {
   background: var(--teal);
   border-color: var(--teal);
   color: white;
+}
+
+/* ---------- Filas de saldo con acento de color ---------- */
+.balance-row {
+  border-left: 4px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.balance-row.amount-owed { border-left-color: var(--owed-green); background: linear-gradient(90deg, var(--owed-green-bg), var(--card) 40%); }
+.balance-row.amount-owe { border-left-color: var(--amber); background: linear-gradient(90deg, var(--amber-light), var(--card) 40%); }
+.balance-row.amount-neutral { border-left-color: var(--line); }
+
+/* ---------- Botones y tarjetas más vivos ---------- */
+.btn-primary {
+  background: linear-gradient(135deg, #14b89b, var(--teal-dark));
+  box-shadow: 0 4px 14px rgba(15, 157, 132, 0.28);
+}
+
+.btn-primary:active { background: var(--teal-dark); }
+
+.card {
+  border: 1px solid rgba(15, 157, 132, 0.09);
+}
+
+/* ---------- Chips de categoría ---------- */
+.cat-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cat-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.cat-chip .cat-emoji { font-size: 16px; }
+
+.cat-chip.active {
+  background: color-mix(in srgb, var(--cat-color) 16%, white);
+  border-color: var(--cat-color);
+  color: color-mix(in srgb, var(--cat-color) 70%, black);
+}
+
+/* ---------- Selección de participantes ---------- */
+.member-check-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.member-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.member-check.checked {
+  border-color: var(--teal);
+  background: var(--teal-light);
+}
+
+.member-check input[type="checkbox"] { flex-shrink: 0; }
+
+/* ---------- Reparto rápido (estilo Splitwise) ---------- */
+.quick-split { padding: 4px; }
+
+.quick-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 14.5px;
+  line-height: 1.35;
+}
+
+.quick-option:last-child { border-bottom: none; }
+
+.quick-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.quick-option .check {
+  margin-left: auto;
+  color: var(--teal);
+  font-weight: 700;
+  font-size: 17px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.quick-option.selected { background: var(--teal-light); }
+.quick-option.selected .check { opacity: 1; }
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--teal-dark);
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 12px 4px;
+  text-decoration: underline;
 }

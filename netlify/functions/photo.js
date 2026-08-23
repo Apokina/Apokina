@@ -47,7 +47,11 @@ export default async (req) => {
     const buffer = Buffer.from(base64, 'base64');
     if (buffer.length > 3 * 1024 * 1024) return json(400, { error: 'La foto es demasiado grande' });
 
-    const key = `${code}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.jpg`;
+    // Las fotos de perfil usan una clave fija por persona, para que al cambiarla
+    // se sustituya en vez de acumular fotos viejas sin usar.
+    const key = payload.avatarFor
+      ? `${code}/avatar-${payload.avatarFor}`
+      : `${code}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.jpg`;
     await store.set(key, buffer);
     return json(200, { photoKey: key });
   } catch (err) {

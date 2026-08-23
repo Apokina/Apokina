@@ -154,6 +154,7 @@ export default async (req) => {
         splitType: e.splitType === 'custom' ? 'custom' : 'equal',
         splits: splits.map((x) => ({ memberId: x.memberId, amount: Math.round(Number(x.amount) || 0) })),
         photoKey: e.photoKey || null,
+        category: (typeof e.category === 'string' && e.category.trim()) || 'otros',
         createdAt: nowIso(),
       };
       group.expenses.push(expense);
@@ -193,6 +194,16 @@ export default async (req) => {
 
     if (action === 'delete_payment') {
       group.payments = group.payments.filter((x) => x.id !== payload.paymentId);
+      group.updatedAt = nowIso();
+      await store.setJSON(code, group);
+      return json(200, { group });
+    }
+
+    if (action === 'set_member_photo') {
+      const memberId = payload.memberId;
+      const member = group.members.find((m) => m.id === memberId);
+      if (!member) return json(404, { error: 'No se encuentra a esa persona en el grupo' });
+      member.photoKey = payload.photoKey || null;
       group.updatedAt = nowIso();
       await store.setJSON(code, group);
       return json(200, { group });

@@ -14,6 +14,21 @@
     '#577590', '#b5525c', '#43aa8b', '#9b5de5', '#f4845f',
   ];
 
+  const CATEGORIES = [
+    { id: 'comida', label: 'Comida', emoji: '🍔', color: '#e07a5f' },
+    { id: 'super', label: 'Súper', emoji: '🛒', color: '#2a9d8f' },
+    { id: 'transporte', label: 'Transporte', emoji: '🚗', color: '#577590' },
+    { id: 'ocio', label: 'Ocio', emoji: '🎉', color: '#9b5de5' },
+    { id: 'casa', label: 'Casa', emoji: '🏠', color: '#e9963e' },
+    { id: 'salud', label: 'Salud', emoji: '💊', color: '#e63946' },
+    { id: 'viajes', label: 'Viajes', emoji: '✈️', color: '#118ab2' },
+    { id: 'otros', label: 'Otros', emoji: '📦', color: '#8d5a97' },
+  ];
+
+  function getCategory(id) {
+    return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+  }
+
   function hashStr(str) {
     let h = 0;
     for (let i = 0; i < str.length; i++) {
@@ -63,8 +78,21 @@
     return (cents / 100).toFixed(2);
   }
 
-  function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  // Reparte `amountCents` a partes iguales entre `ids`, sin perder céntimos por redondeo.
+  function equalSplit(ids, amountCents) {
+    const n = ids.length;
+    const base = Math.floor(amountCents / n);
+    const remainder = amountCents - base * n;
+    return ids.map((id, idx) => ({ memberId: id, amount: base + (idx < remainder ? 1 : 0) }));
+  }
+
+  // Avatar (foto si existe, si no iniciales de color).
+  function avatarHtml(member, size) {
+    size = size || 44;
+    if (member.photoKey) {
+      return `<img src="${PHOTO_URL}?key=${encodeURIComponent(member.photoKey)}" class="avatar" style="width:${size}px;height:${size}px;object-fit:cover;" alt="${escapeHtml(member.name)}" />`;
+    }
+    return `<div class="avatar" style="background:${avatarColor(member.id)};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px;">${escapeHtml(initials(member.name))}</div>`;
   }
 
   // ---------------------------------------------------------------------
@@ -130,8 +158,8 @@
     return body.group;
   }
 
-  async function uploadPhoto(code, base64) {
-    const body = await apiPostRaw(PHOTO_URL, { groupCode: code, imageBase64: base64 });
+  async function uploadPhoto(code, base64, avatarFor) {
+    const body = await apiPostRaw(PHOTO_URL, { groupCode: code, imageBase64: base64, avatarFor: avatarFor || undefined });
     return body.photoKey;
   }
 
@@ -451,8 +479,8 @@
           else if (row.amount > 0) { label = `le debes ${formatMoney(row.amount)}`; cls = 'amount-owe'; }
           else { label = 'en paz'; cls = 'amount-neutral'; }
           return `
-            <div class="list-row">
-              <div class="avatar" style="background:${avatarColor(m.id)}">${escapeHtml(initials(m.name))}</div>
+            <div class="list-row balance-row ${cls}">
+              ${avatarHtml(m, 44)}
               <div class="row-main">
                 <div class="row-title">${escapeHtml(m.name)}</div>
                 <div class="row-sub ${cls}">${label}</div>
@@ -485,11 +513,11 @@
         </div>
         <div class="sub">Código ${group.code} · ${group.members.length} persona${group.members.length === 1 ? '' : 's'}</div>
         <div class="totals">
-          <div class="total-chip">
+          <div class="total-chip owed">
             <div class="label">Te deben en total</div>
             <div class="value">${formatMoney(totalOwedToMe)}</div>
           </div>
-          <div class="total-chip">
+          <div class="total-chip owe">
             <div class="label">Debes en total</div>
             <div class="value">${formatMoney(totalIOwe)}</div>
           </div>
@@ -510,6 +538,7 @@
         <div class="filter-scroll">${filterChips}</div>
         <div class="section screen-pad-bottom" style="padding-top:0;">
           <div class="card">${activityRows}</div>
+          <button class="btn btn-secondary btn-block" style="margin-top:14px;" data-action="export-csv">📤 Exportar movimientos (Excel/CSV)</button>
         </div>
       `}
 
@@ -531,6 +560,7 @@
         sub: `${payer ? payer.name : '?'} pagó`,
         amount: e.amount,
         photoKey: e.photoKey,
+        category: e.category || 'otros',
         involves: [e.paidBy, ...e.splits.map((s) => s.memberId)],
       });
     }
@@ -553,17 +583,21 @@
   }
 
   function renderActivityRow(item) {
-    const icon = item.type === 'expense' ? '🧾' : '💸';
+    const cat = item.type === 'expense' ? getCategory(item.category) : null;
+    const iconStyle = item.type === 'expense'
+      ? `background:${cat.color}22;color:${cat.color};`
+      : `background:var(--teal-light);color:var(--teal-dark);`;
+    const icon = item.type === 'expense' ? cat.emoji : '💸';
     const photoBtn = item.photoKey
       ? `<button class="btn btn-secondary btn-sm" data-action="view-photo" data-key="${escapeHtml(item.photoKey)}" style="margin-top:6px;">📷 Ver foto</button>`
       : '';
     const delAction = item.type === 'expense' ? 'delete-expense' : 'delete-payment';
     return `
       <div class="list-row" style="align-items:flex-start;">
-        <div class="avatar" style="background:var(--teal-light);color:var(--teal-dark);font-size:18px;">${icon}</div>
+        <div class="avatar" style="${iconStyle}font-size:19px;">${icon}</div>
         <div class="row-main">
           <div class="row-title">${escapeHtml(item.title)}</div>
-          <div class="row-sub">${escapeHtml(item.sub)} · ${formatDate(item.date)}</div>
+          <div class="row-sub">${escapeHtml(item.sub)} · ${formatDate(item.date)}${cat ? ` · ${escapeHtml(cat.label)}` : ''}</div>
           ${photoBtn}
         </div>
         <div class="row-right">
@@ -571,6 +605,52 @@
           <button class="btn-danger-text btn-sm" data-action="${delAction}" data-id="${escapeHtml(item.id)}">Eliminar</button>
         </div>
       </div>`;
+  }
+
+  // ---------------------------------------------------------------------
+  // Exportar a CSV (se abre bien en Excel)
+  // ---------------------------------------------------------------------
+
+  function exportCsv() {
+    const group = state.group;
+    const items = buildActivityList(group).slice().reverse(); // orden cronológico
+    const rows = [['Fecha', 'Tipo', 'Categoría', 'Descripción', 'Quién pagó / De', 'Para (si es pago)', 'Importe (€)']];
+    for (const item of items) {
+      const cat = item.type === 'expense' ? getCategory(item.category).label : '';
+      let quien = '';
+      let para = '';
+      if (item.type === 'expense') {
+        quien = item.sub.replace(' pagó', '');
+      } else {
+        const parts = item.title.split(' pagó a ');
+        quien = parts[0] || '';
+        para = parts[1] || '';
+      }
+      rows.push([
+        item.date || '',
+        item.type === 'expense' ? 'Gasto' : 'Liquidación',
+        cat,
+        item.title,
+        quien,
+        para,
+        (item.amount / 100).toFixed(2).replace('.', ','),
+      ]);
+    }
+    const csv = rows.map((r) => r.map((cell) => {
+      const s = String(cell == null ? '' : cell);
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(';')).join('\r\n');
+
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gastos-${group.code}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('Movimientos exportados');
   }
 
   // ---------------------------------------------------------------------
@@ -605,10 +685,15 @@
     const link = `${location.origin}/?join=${group.code}`;
     const memberRows = group.members.map((m) => `
       <div class="list-row">
-        <div class="avatar" style="background:${avatarColor(m.id)}">${escapeHtml(initials(m.name))}</div>
+        ${avatarHtml(m, 44)}
         <div class="row-main">
           <div class="row-title">${escapeHtml(m.name)}${m.id === state.meId ? ' (tú)' : ''}</div>
         </div>
+        ${m.id === state.meId ? `
+          <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
+            📷 Foto
+            <input type="file" accept="image/*" data-role="avatar-input" style="display:none;" />
+          </label>` : ''}
       </div>`).join('');
 
     app.innerHTML = `
@@ -638,6 +723,9 @@
         <div class="section-title" style="margin-top:24px;">Miembros</div>
         <div class="card">${memberRows}</div>
 
+        <div class="section-title" style="margin-top:24px;">Tus datos</div>
+        <button class="btn btn-secondary btn-block" data-action="export-csv">📤 Exportar movimientos (Excel/CSV)</button>
+
         <button class="btn btn-danger-text btn-block" style="margin-top:24px;" data-action="leave-group">Salir de este grupo (solo en este dispositivo)</button>
       </div>`;
   }
@@ -652,45 +740,118 @@
       description: '',
       amount: '',
       date: todayStr(),
+      category: 'otros',
+      participants: new Set(group.members.map((m) => m.id)),
+      advancedMode: false,
+      quickChoice: null,
+      // usados solo en modo avanzado:
       paidBy: state.meId,
       splitType: 'equal',
-      participants: new Set(group.members.map((m) => m.id)),
       customAmounts: {},
       photoBase64: null,
       photoPreview: null,
     };
   }
 
+  // Devuelve [a, b] ordenados: "tú" primero si participas, si no el orden del grupo.
+  function getQuickPair(group, meId, participantIds) {
+    const members = group.members.filter((m) => participantIds.includes(m.id));
+    if (members.length !== 2) return null;
+    if (members[1].id === meId) return [members[1], members[0]];
+    return [members[0], members[1]];
+  }
+
+  function computeQuickSplits(a, b, quickChoice, amountCents) {
+    if (quickChoice === 'a-owed') return { payer: a.id, splits: [{ memberId: a.id, amount: 0 }, { memberId: b.id, amount: amountCents }] };
+    if (quickChoice === 'b-equal') return { payer: b.id, splits: equalSplit([a.id, b.id], amountCents) };
+    if (quickChoice === 'b-owed') return { payer: b.id, splits: [{ memberId: b.id, amount: 0 }, { memberId: a.id, amount: amountCents }] };
+    return { payer: a.id, splits: equalSplit([a.id, b.id], amountCents) }; // 'a-equal' por defecto
+  }
+
   function renderAddExpense() {
     if (!draft) initExpenseDraft();
     const group = state.group;
 
-    const payerOptions = group.members.map((m) =>
-      `<option value="${m.id}" ${draft.paidBy === m.id ? 'selected' : ''}>${escapeHtml(m.name)}${m.id === state.meId ? ' (tú)' : ''}</option>`
-    ).join('');
+    const categoryChips = CATEGORIES.map((c) => `
+      <button type="button" class="cat-chip ${draft.category === c.id ? 'active' : ''}" data-action="set-category" data-cat="${c.id}"
+        style="--cat-color:${c.color};">
+        <span class="cat-emoji">${c.emoji}</span>${escapeHtml(c.label)}
+      </button>`).join('');
 
-    const amountCents = euroToCents(draft.amount || 0);
     const participantIds = group.members.filter((m) => draft.participants.has(m.id)).map((m) => m.id);
+    const pair = !draft.advancedMode ? getQuickPair(group, state.meId, participantIds) : null;
 
-    let splitRows = '';
-    if (draft.splitType === 'equal') {
-      splitRows = group.members.map((m) => `
-        <div class="split-row">
-          <input type="checkbox" data-role="participant" data-member="${m.id}" ${draft.participants.has(m.id) ? 'checked' : ''} />
-          <div class="name">${escapeHtml(m.name)}</div>
-        </div>`).join('');
+    const memberCheckboxes = group.members.map((m) => `
+      <label class="member-check ${draft.participants.has(m.id) ? 'checked' : ''}">
+        <input type="checkbox" data-role="participant" data-member="${m.id}" ${draft.participants.has(m.id) ? 'checked' : ''} />
+        ${avatarHtml(m, 30)}
+        <span>${escapeHtml(m.name)}${m.id === state.meId ? ' (tú)' : ''}</span>
+      </label>`).join('');
+
+    let splitSection = '';
+
+    if (pair) {
+      const [a, b] = pair;
+      const choice = draft.quickChoice || 'a-equal';
+      const opt = (value, label) => `
+        <label class="quick-option ${choice === value ? 'selected' : ''}">
+          <input type="radio" name="quickChoice" value="${value}" ${choice === value ? 'checked' : ''} data-role="quick-choice" />
+          <span>${label}</span>
+          <span class="check">✓</span>
+        </label>`;
+
+      splitSection = `
+        <div class="quick-split card">
+          ${opt('a-equal', a.id === state.meId ? 'Tú pagaste, dividido a partes iguales.' : `${escapeHtml(a.name)} pagó, dividido a partes iguales.`)}
+          ${opt('a-owed', a.id === state.meId ? 'Se te debe la cantidad total.' : `Se debe la cantidad total a ${escapeHtml(a.name)}.`)}
+          ${opt('b-equal', b.id === state.meId ? 'Tú pagaste, dividido a partes iguales.' : `${escapeHtml(b.name)} pagó, dividido a partes iguales.`)}
+          ${opt('b-owed', b.id === state.meId ? 'Se te debe la cantidad total.' : `Se debe la cantidad total a ${escapeHtml(b.name)}.`)}
+        </div>
+        <button type="button" class="link-btn" data-action="toggle-advanced">Más opciones</button>`;
     } else {
-      splitRows = group.members.map((m) => {
-        const checked = draft.participants.has(m.id);
-        const val = draft.customAmounts[m.id] != null ? draft.customAmounts[m.id] : '';
-        return `
-        <div class="split-row">
-          <input type="checkbox" data-role="participant" data-member="${m.id}" ${checked ? 'checked' : ''} />
-          <div class="name">${escapeHtml(m.name)}</div>
-          <input type="number" step="0.01" min="0" inputmode="decimal" data-role="custom-amount" data-member="${m.id}"
-            value="${val}" placeholder="0,00" ${checked ? '' : 'disabled'} />
-        </div>`;
-      }).join('');
+      const payerOptions = group.members.map((m) =>
+        `<option value="${m.id}" ${draft.paidBy === m.id ? 'selected' : ''}>${escapeHtml(m.name)}${m.id === state.meId ? ' (tú)' : ''}</option>`
+      ).join('');
+
+      let advancedRows = '';
+      if (draft.splitType === 'equal') {
+        advancedRows = group.members.filter((m) => draft.participants.has(m.id)).map((m) => `
+          <div class="split-row">
+            ${avatarHtml(m, 28)}
+            <div class="name">${escapeHtml(m.name)}</div>
+          </div>`).join('');
+      } else {
+        advancedRows = group.members.filter((m) => draft.participants.has(m.id)).map((m) => {
+          const val = draft.customAmounts[m.id] != null ? draft.customAmounts[m.id] : '';
+          return `
+          <div class="split-row">
+            ${avatarHtml(m, 28)}
+            <div class="name">${escapeHtml(m.name)}</div>
+            <input type="number" step="0.01" min="0" inputmode="decimal" data-role="custom-amount" data-member="${m.id}"
+              value="${val}" placeholder="0,00" />
+          </div>`;
+        }).join('');
+      }
+
+      splitSection = `
+        <div class="field">
+          <label>¿Quién participa en este gasto?</label>
+          <div class="member-check-grid">${memberCheckboxes}</div>
+        </div>
+        <div class="field">
+          <label>¿Quién pagó?</label>
+          <select name="paidBy">${payerOptions}</select>
+        </div>
+        <div class="field">
+          <label>¿Cómo se reparte?</label>
+          <div class="tabs" style="margin:0;">
+            <button type="button" class="tab ${draft.splitType === 'equal' ? 'active' : ''}" data-action="set-split-type" data-type="equal">Partes iguales</button>
+            <button type="button" class="tab ${draft.splitType === 'custom' ? 'active' : ''}" data-action="set-split-type" data-type="custom">Cantidades personalizadas</button>
+          </div>
+        </div>
+        <div class="card" style="padding:6px 12px;">${advancedRows}</div>
+        <div id="splitSummary"></div>
+        ${participantIds.length === 2 ? `<button type="button" class="link-btn" data-action="toggle-advanced">← Reparto rápido</button>` : ''}`;
     }
 
     app.innerHTML = `
@@ -713,9 +874,10 @@
             <label>Fecha</label>
             <input type="date" name="date" value="${draft.date}" />
           </div>
+
           <div class="field">
-            <label>¿Quién pagó?</label>
-            <select name="paidBy">${payerOptions}</select>
+            <label>Categoría</label>
+            <div class="cat-chip-row">${categoryChips}</div>
           </div>
 
           <div class="field">
@@ -724,21 +886,18 @@
             ${draft.photoPreview ? `<img src="${draft.photoPreview}" class="photo-preview" />` : ''}
           </div>
 
-          <div class="field">
-            <label>¿Cómo se reparte?</label>
-            <div class="tabs" style="margin:0;">
-              <button type="button" class="tab ${draft.splitType === 'equal' ? 'active' : ''}" data-action="set-split-type" data-type="equal">Partes iguales</button>
-              <button type="button" class="tab ${draft.splitType === 'custom' ? 'active' : ''}" data-action="set-split-type" data-type="custom">Cantidades personalizadas</button>
+          ${pair ? `
+            <div class="field">
+              <label>¿Quién participa en este gasto?</label>
+              <div class="member-check-grid">${memberCheckboxes}</div>
             </div>
-          </div>
+            <div class="field">
+              <label>¿Cómo se dividió este gasto?</label>
+              ${splitSection}
+            </div>
+          ` : `<div class="field">${splitSection}</div>`}
 
-          <div class="card" style="padding:6px 12px;">
-            ${splitRows}
-          </div>
-
-          <div id="splitSummary"></div>
-
-          <button class="btn btn-primary btn-block" type="submit" style="margin-top:18px;" ${state.busy ? 'disabled' : ''}>
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:8px;" ${state.busy ? 'disabled' : ''}>
             ${state.busy ? 'Guardando…' : 'Guardar gasto'}
           </button>
         </form>
@@ -749,10 +908,10 @@
 
   function updateSplitSummary() {
     const el = document.getElementById('splitSummary');
-    if (!el || !draft) return;
+    if (!el || !draft) return; // no existe en el modo de reparto rápido (2 personas)
     const group = state.group;
-    const amount = document.querySelector('form[data-form="expense"] input[name="amount"]');
-    const amountCents = euroToCents(amount ? amount.value : draft.amount || 0);
+    const amountInput = document.querySelector('form[data-form="expense"] input[name="amount"]');
+    const amountCents = euroToCents(amountInput ? amountInput.value : draft.amount || 0);
 
     if (draft.splitType === 'equal') {
       const n = draft.participants.size;
@@ -807,7 +966,9 @@
   // Compresión de imágenes
   // ---------------------------------------------------------------------
 
-  function compressImage(file, maxSize = 1280, quality = 0.72) {
+  function compressImage(file, maxSize, quality) {
+    maxSize = maxSize || 1280;
+    quality = quality || 0.72;
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = reject;
@@ -909,27 +1070,33 @@
     const description = form.description.value.trim();
     const amountCents = euroToCents(form.amount.value);
     const date = form.date.value || todayStr();
-    const paidBy = form.paidBy.value;
     const group = state.group;
+    const participantIds = group.members.filter((m) => draft.participants.has(m.id)).map((m) => m.id);
+    const pair = !draft.advancedMode ? getQuickPair(group, state.meId, participantIds) : null;
 
-    let splits = [];
-    if (draft.splitType === 'equal') {
-      const ids = group.members.filter((m) => draft.participants.has(m.id)).map((m) => m.id);
-      if (ids.length === 0) return setError('Selecciona al menos una persona en el reparto');
-      const base = Math.floor(amountCents / ids.length);
-      let remainder = amountCents - base * ids.length;
-      splits = ids.map((id, idx) => ({ memberId: id, amount: base + (idx < remainder ? 1 : 0) }));
+    let paidBy, splits;
+
+    if (pair) {
+      const [a, b] = pair;
+      const result = computeQuickSplits(a, b, draft.quickChoice || 'a-equal', amountCents);
+      paidBy = result.payer;
+      splits = result.splits;
     } else {
-      const ids = group.members.filter((m) => draft.participants.has(m.id)).map((m) => m.id);
-      if (ids.length === 0) return setError('Selecciona al menos una persona en el reparto');
-      let sum = 0;
-      splits = ids.map((id) => {
-        const input = document.querySelector(`[data-role="custom-amount"][data-member="${id}"]`);
-        const cents = euroToCents(input ? input.value : 0);
-        sum += cents;
-        return { memberId: id, amount: cents };
-      });
-      if (sum !== amountCents) return setError('El reparto personalizado no cuadra con el importe total');
+      paidBy = form.paidBy.value;
+      if (draft.splitType === 'equal') {
+        if (participantIds.length === 0) return setError('Selecciona al menos una persona en el reparto');
+        splits = equalSplit(participantIds, amountCents);
+      } else {
+        if (participantIds.length === 0) return setError('Selecciona al menos una persona en el reparto');
+        let sum = 0;
+        splits = participantIds.map((id) => {
+          const input = document.querySelector(`[data-role="custom-amount"][data-member="${id}"]`);
+          const cents = euroToCents(input ? input.value : 0);
+          sum += cents;
+          return { memberId: id, amount: cents };
+        });
+        if (sum !== amountCents) return setError('El reparto personalizado no cuadra con el importe total');
+      }
     }
 
     state.busy = true; state.error = null; render();
@@ -940,7 +1107,7 @@
       }
       const { group: updated } = await apiPost('add_expense', {
         groupCode: state.code,
-        expense: { description, amount: amountCents, paidBy, date, splitType: draft.splitType, splits, photoKey },
+        expense: { description, amount: amountCents, paidBy, date, category: draft.category, splitType: draft.splitType, splits, photoKey },
       });
       state.group = updated;
       state.busy = false;
@@ -1001,6 +1168,20 @@
     }
   }
 
+  async function changeAvatar(file) {
+    try {
+      const dataUrl = await compressImage(file, 480, 0.75);
+      toast('Subiendo foto…');
+      const photoKey = await uploadPhoto(state.code, dataUrl, state.meId);
+      const { group } = await apiPost('set_member_photo', { groupCode: state.code, memberId: state.meId, photoKey });
+      state.group = group;
+      render();
+      toast('Foto actualizada');
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Delegación de eventos
   // ---------------------------------------------------------------------
@@ -1020,6 +1201,7 @@
     if (action === 'set-filter') { state.activityFilter = target.dataset.filter; return render(); }
     if (action === 'show-add-expense') { draft = null; state.screen = 'addExpense'; state.error = null; return render(); }
     if (action === 'show-add-member') { state.screen = 'addMember'; state.error = null; return render(); }
+    if (action === 'export-csv') return exportCsv();
 
     if (action === 'open-settle') {
       const memberId = target.dataset.member;
@@ -1030,6 +1212,13 @@
       state.screen = 'settle';
       state.error = null;
       return render();
+    }
+
+    if (action === 'set-category') { draft.category = target.dataset.cat; return renderAddExpense(); }
+
+    if (action === 'toggle-advanced') {
+      draft.advancedMode = !draft.advancedMode;
+      return renderAddExpense();
     }
 
     if (action === 'set-split-type') {
@@ -1080,6 +1269,11 @@
       const memberId = e.target.dataset.member;
       if (e.target.checked) draft.participants.add(memberId);
       else draft.participants.delete(memberId);
+      draft.quickChoice = null;
+      return renderAddExpense();
+    }
+    if (e.target.matches('[data-role="quick-choice"]')) {
+      draft.quickChoice = e.target.value;
       return renderAddExpense();
     }
     if (e.target.matches('[data-role="photo-input"]')) {
@@ -1090,6 +1284,11 @@
         draft.photoPreview = dataUrl;
         renderAddExpense();
       }).catch(() => toast('No se ha podido procesar la foto'));
+      return;
+    }
+    if (e.target.matches('[data-role="avatar-input"]')) {
+      const file = e.target.files[0];
+      if (file) changeAvatar(file);
       return;
     }
   });
@@ -1133,13 +1332,8 @@
       return;
     }
 
-    if (state.device.groups.length > 0) {
-      state.screen = 'home';
-      render();
-    } else {
-      state.screen = 'home';
-      render();
-    }
+    state.screen = 'home';
+    render();
   }
 
   if ('serviceWorker' in navigator) {
