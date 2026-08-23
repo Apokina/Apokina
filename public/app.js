@@ -256,11 +256,14 @@
     const el = document.getElementById('moneyDecor');
     if (!el) return;
     const emojis = ['🪙', '💶', '💸', '💰'];
-    const COUNT = 16;
+    const COUNT = 48; // x3 respecto a antes
     let html = '';
     for (let i = 0; i < COUNT; i++) {
       const emoji = emojis[i % emojis.length];
-      const left = Math.round(Math.random() * 94);
+      // Distribución triangular: concentra la mayoría hacia el centro de la
+      // pantalla (en móvil, cerca de los bordes se ve raro/cortado).
+      const centerBias = (Math.random() + Math.random() + Math.random()) / 3;
+      const left = Math.round(10 + centerBias * 80);
       const top = Math.round(Math.random() * 92);
       const size = 20 + Math.round(Math.random() * 26);
       const delay = (Math.random() * 4).toFixed(2);
@@ -287,43 +290,71 @@
     return audioCtx;
   }
 
+  const CASH_SOUND_URL = '/sounds/cash-register.mp3';
+  let cashSoundBuffer = null;
+  let cashSoundLoadPromise = null;
+
+  // Descarga y decodifica el sonido una sola vez, y lo deja preparado en memoria.
+  function loadCashSound() {
+    const ctx = getAudioCtx();
+    if (!ctx) return Promise.resolve(null);
+    if (cashSoundBuffer) return Promise.resolve(cashSoundBuffer);
+    if (!cashSoundLoadPromise) {
+      cashSoundLoadPromise = fetch(CASH_SOUND_URL)
+        .then((res) => res.arrayBuffer())
+        .then((data) => ctx.decodeAudioData(data))
+        .then((buf) => { cashSoundBuffer = buf; return buf; })
+        .catch(() => null);
+    }
+    return cashSoundLoadPromise;
+  }
+
+  // Reproduce el "chin chin" de caja registradora, reforzado con ganancia extra
+  // y un limitador para que suene lo más fuerte posible sin distorsionar.
   function playCashRegisterSound() {
     const ctx = getAudioCtx();
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    const now = ctx.currentTime;
-    const master = ctx.createGain();
-    master.gain.value = 1; // volumen al máximo
-    master.connect(ctx.destination);
 
-    function ding(freq, start, duration, type) {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type || 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, now + start);
-      gain.gain.exponentialRampToValueAtTime(1, now + start + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
-      osc.connect(gain);
-      gain.connect(master);
-      osc.start(now + start);
-      osc.stop(now + start + duration + 0.05);
-    }
+    loadCashSound().then((buffer) => {
+      if (!buffer) {
+        try {
+          const audio = new Audio(CASH_SOUND_URL);
+          audio.volume = 1;
+          audio.play().catch(() => {});
+        } catch (e) { /* sin sonido, seguimos sin bloquear nada */ }
+        return;
+      }
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
 
-    ding(1568, 0, 0.16, 'sine');
-    ding(2093, 0.08, 0.24, 'sine');
-    ding(3136, 0.08, 0.32, 'triangle');
+        const gain = ctx.createGain();
+        gain.gain.value = 2.4; // refuerzo extra de volumen sobre el archivo original
+
+        const limiter = ctx.createDynamicsCompressor();
+        limiter.threshold.value = -6;
+        limiter.knee.value = 0;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.002;
+        limiter.release.value = 0.15;
+
+        source.connect(gain);
+        gain.connect(limiter);
+        limiter.connect(ctx.destination);
+        source.start(0);
+      } catch (e) { /* si algo falla, simplemente no suena */ }
+    });
   }
 
-  // Crea el contexto de audio en el primer toque del usuario (algunos móviles
-  // exigen que el sonido se "desbloquee" con una interacción real).
-  document.addEventListener('pointerdown', () => { getAudioCtx(); }, { once: true, passive: true });
+  // Crea el contexto de audio y precarga el sonido en el primer toque del
+  // usuario (algunos móviles exigen "desbloquear" el sonido con una interacción real).
+  document.addEventListener('pointerdown', () => { getAudioCtx(); loadCashSound(); }, { once: true, passive: true });
 
   function toast(msg) {
-    toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+    // Mensajes flotantes desactivados a petición del usuario: los errores
+    // importantes se siguen mostrando en el banner de la propia pantalla.
+    return;
   }
 
   function setError(msg) {
@@ -875,10 +906,12 @@
           <div class="row-title">${escapeHtml(m.name)}${m.id === state.meId ? ' (tú)' : ''}</div>
         </div>
         ${m.id === state.meId ? `
-          <label class="btn btn-secondary btn-sm" style="cursor:pointer;">
-            📷 Foto
-            <input type="file" accept="image/*" data-role="avatar-input" style="display:none;" />
-          </label>` : ''}
+          <div class="avatar-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="pick-avatar-selfie">🤳 Selfie</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="pick-avatar-gallery">🖼️ Galería</button>
+          </div>
+          <input type="file" accept="image/*" capture="user" id="avatarSelfieInput" data-role="avatar-input" class="visually-hidden-file" />
+          <input type="file" accept="image/*" id="avatarGalleryInput" data-role="avatar-input" class="visually-hidden-file" />` : ''}
       </div>`).join('');
 
     app.innerHTML = `
@@ -1068,14 +1101,10 @@
           <div class="field">
             <label>Foto del ticket (opcional)</label>
             <div class="photo-btn-row">
-              <label class="btn btn-secondary photo-btn">
-                📷 Hacer foto
-                <input type="file" accept="image/*" capture="environment" data-role="photo-input-camera" style="display:none;" />
-              </label>
-              <label class="btn btn-secondary photo-btn">
-                🖼️ Elegir de galería
-                <input type="file" accept="image/*" data-role="photo-input-gallery" style="display:none;" />
-              </label>
+              <button type="button" class="btn btn-secondary photo-btn" data-action="pick-expense-camera">📷 Hacer foto</button>
+              <button type="button" class="btn btn-secondary photo-btn" data-action="pick-expense-gallery">🖼️ Elegir de galería</button>
+              <input type="file" accept="image/*" capture="environment" id="expenseCameraInput" data-role="photo-input-camera" class="visually-hidden-file" />
+              <input type="file" accept="image/*" id="expenseGalleryInput" data-role="photo-input-gallery" class="visually-hidden-file" />
             </div>
             ${draft.photoPreview ? `
               <div class="photo-preview-wrap">
@@ -1468,6 +1497,11 @@
       draft.photoPreview = null;
       return renderAddExpense();
     }
+
+    if (action === 'pick-expense-camera') { document.getElementById('expenseCameraInput')?.click(); return; }
+    if (action === 'pick-expense-gallery') { document.getElementById('expenseGalleryInput')?.click(); return; }
+    if (action === 'pick-avatar-selfie') { document.getElementById('avatarSelfieInput')?.click(); return; }
+    if (action === 'pick-avatar-gallery') { document.getElementById('avatarGalleryInput')?.click(); return; }
   });
 
   app.addEventListener('change', (e) => {

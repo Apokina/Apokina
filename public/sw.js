@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gc-cache-v1';
+const CACHE_NAME = 'gc-cache-v3';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -7,6 +7,7 @@ const CORE_ASSETS = [
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/sounds/cash-register.mp3',
 ];
 
 self.addEventListener('install', (event) => {
@@ -32,18 +33,17 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/photo') || url.pathname.startsWith('/.netlify/functions/')) return;
   if (event.request.method !== 'GET') return;
 
+  // Red primero: así cada visita usa siempre la última versión publicada.
+  // Solo se recurre a la copia guardada si no hay conexión.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
