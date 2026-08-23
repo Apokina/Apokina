@@ -105,6 +105,12 @@ input, select {
   justify-content: space-between;
 }
 
+.hero-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .icon-btn {
   background: rgba(255,255,255,0.18);
   border: none;
@@ -667,7 +673,7 @@ input[type="checkbox"] {
 
 .activity-card { margin-bottom: 4px; }
 
-.activity-row { align-items: flex-start; }
+.activity-row { align-items: center; cursor: pointer; }
 
 .cat-icon {
   width: 46px;
@@ -683,6 +689,27 @@ input[type="checkbox"] {
 
 .row-right .row-sub { margin-top: 3px; }
 .row-right .btn-sm { margin-top: 6px; }
+
+.row-chevron {
+  color: var(--ink-soft);
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+.movement-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--teal-light);
+  color: var(--teal-dark);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 4px;
+}
 
 /* ---------- Botones de foto (cámara / galería) ---------- */
 .photo-btn-row {

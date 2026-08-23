@@ -134,6 +134,16 @@
     saveDevice(device);
   }
 
+  const MUTE_KEY = 'gc_muted_v1';
+
+  function loadMuted() {
+    try { return localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  function saveMuted(muted) {
+    try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch (e) { /* ignore */ }
+  }
+
   // ---------------------------------------------------------------------
   // Llamadas a la API
   // ---------------------------------------------------------------------
@@ -240,9 +250,11 @@
     busy: false,
     pollTimer: null,
     prefillJoinCode: null,
+    muted: loadMuted(),
   };
 
   let draft = null; // borrador del formulario de gasto/pago en curso
+  let viewingItem = null; // movimiento (gasto o pago) que se está viendo en detalle
 
   const app = document.getElementById('app');
   const toastEl = document.getElementById('toast');
@@ -312,6 +324,7 @@
   // Reproduce el "chin chin" de caja registradora, reforzado con ganancia extra
   // y un limitador para que suene lo más fuerte posible sin distorsionar.
   function playCashRegisterSound() {
+    if (state.muted) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -449,6 +462,7 @@
     if (state.screen === 'settle') return renderSettle();
     if (state.screen === 'settings') return renderSettings();
     if (state.screen === 'addMember') return renderAddMember();
+    if (state.screen === 'movementDetail') return renderMovementDetail();
   }
 
   function renderLoading() {
@@ -531,7 +545,7 @@
         <div class="hero-top">
           <div></div>
           <h1 style="margin:0;font-size:20px;">Tus grupos</h1>
-          <div></div>
+          <button class="icon-btn" data-action="toggle-mute" title="${state.muted ? 'Activar sonido' : 'Silenciar'}">${state.muted ? '🔇' : '🔊'}</button>
         </div>
       </div>
       <div class="section screen-pad-bottom">
@@ -649,7 +663,10 @@
         <div class="hero-top">
           <button class="icon-btn" data-action="go-home">←</button>
           <h1 style="margin:0;">${escapeHtml(group.name)}</h1>
-          <button class="icon-btn" data-action="open-settings">⚙️</button>
+          <div class="hero-top-actions">
+            <button class="icon-btn" data-action="toggle-mute" title="${state.muted ? 'Activar sonido' : 'Silenciar'}">${state.muted ? '🔇' : '🔊'}</button>
+            <button class="icon-btn" data-action="open-settings">⚙️</button>
+          </div>
         </div>
         <div class="sub">Código ${group.code} · ${group.members.length} persona${group.members.length === 1 ? '' : 's'}</div>
         <div class="totals">
@@ -689,10 +706,13 @@
       </div>`;
   }
 
+  const UNKNOWN_MEMBER = { id: '?', name: '?' };
+
   function buildActivityList(group) {
     const items = [];
     for (const e of group.expenses || []) {
       const payer = group.members.find((m) => m.id === e.paidBy);
+      const creator = group.members.find((m) => m.id === e.createdBy) || payer;
       items.push({
         type: 'expense',
         date: e.date,
@@ -700,7 +720,10 @@
         id: e.id,
         title: e.description,
         payerName: payer ? payer.name : '?',
+        payerMember: payer || null,
         paidBy: e.paidBy,
+        createdBy: e.createdBy || e.paidBy,
+        creatorMember: creator || null,
         splits: e.splits,
         amount: e.amount,
         photoKey: e.photoKey,
@@ -711,6 +734,7 @@
     for (const p of group.payments || []) {
       const from = group.members.find((m) => m.id === p.fromMemberId);
       const to = group.members.find((m) => m.id === p.toMemberId);
+      const creator = group.members.find((m) => m.id === p.createdBy) || from;
       items.push({
         type: 'payment',
         date: p.date,
@@ -720,6 +744,10 @@
         toMemberId: p.toMemberId,
         fromName: from ? from.name : '?',
         toName: to ? to.name : '?',
+        fromMember: from || null,
+        toMember: to || null,
+        createdBy: p.createdBy || p.fromMemberId,
+        creatorMember: creator || null,
         amount: p.amount,
         involves: [p.fromMemberId, p.toMemberId],
       });
@@ -766,12 +794,11 @@
   function renderActivityRow(item, meId) {
     const isExpense = item.type === 'expense';
     const cat = isExpense ? getCategory(item.category) : null;
-    const iconStyle = isExpense ? `background:${cat.color};` : `background:var(--teal);`;
-    const icon = isExpense ? cat.emoji : '🤝';
+    const actorMember = isExpense ? item.payerMember : item.fromMember;
+    const avatarIcon = avatarHtml(actorMember || UNKNOWN_MEMBER, 46);
     const photoBtn = item.photoKey
       ? `<button class="btn btn-secondary btn-sm" data-action="view-photo" data-key="${escapeHtml(item.photoKey)}" style="margin-top:6px;">📷 Ver foto</button>`
       : '';
-    const delAction = isExpense ? 'delete-expense' : 'delete-payment';
 
     let title, sub, rightLabel, rightClass, rightSecondary = '';
 
@@ -811,8 +838,8 @@
     }
 
     return `
-      <div class="list-row activity-row">
-        <div class="cat-icon" style="${iconStyle}">${icon}</div>
+      <div class="list-row activity-row" data-action="view-movement" data-type="${item.type}" data-id="${escapeHtml(item.id)}">
+        ${avatarIcon}
         <div class="row-main">
           <div class="row-title">${title}</div>
           <div class="row-sub">${sub}</div>
@@ -821,8 +848,92 @@
         <div class="row-right">
           <div class="row-title ${rightClass}" style="font-size:14px;">${rightLabel}</div>
           ${isExpense && rightClass !== 'amount-neutral' ? `<div class="row-sub">${rightSecondary}</div>` : ''}
-          <button class="btn-danger-text btn-sm" data-action="${delAction}" data-id="${escapeHtml(item.id)}">Eliminar</button>
         </div>
+        <div class="row-chevron">›</div>
+      </div>`;
+  }
+
+  // ---------------------------------------------------------------------
+  // Pantalla: detalle de un movimiento (gasto o liquidación)
+  // ---------------------------------------------------------------------
+
+  function renderMovementDetail() {
+    const item = viewingItem;
+    if (!item) { state.screen = 'group'; return render(); }
+    const group = state.group;
+    const isExpense = item.type === 'expense';
+    const meId = state.meId;
+
+    const dateObj = item.date ? new Date(item.date.length <= 10 ? item.date + 'T00:00:00' : item.date) : null;
+    const createdAtObj = item.createdAt ? new Date(item.createdAt) : null;
+    const dateLabel = dateObj ? capitalize(dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })) : '';
+    const timeLabel = createdAtObj ? createdAtObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+
+    const creator = item.creatorMember;
+    const cat = isExpense ? getCategory(item.category) : null;
+
+    const headerMember = isExpense ? (item.payerMember || UNKNOWN_MEMBER) : (item.fromMember || UNKNOWN_MEMBER);
+    const headerIcon = avatarHtml(headerMember, 68);
+    const headerTitle = isExpense ? item.title : `${escapeHtml(item.fromName)} pagó a ${escapeHtml(item.toName)}`;
+
+    let breakdownRows = '';
+    if (isExpense) {
+      breakdownRows = (item.splits || []).map((s) => {
+        const m = group.members.find((mm) => mm.id === s.memberId);
+        return `
+          <div class="list-row">
+            ${avatarHtml(m || UNKNOWN_MEMBER, 36)}
+            <div class="row-main"><div class="row-title" style="font-size:15px;">${escapeHtml(m ? m.name : '?')}${m && m.id === meId ? ' (tú)' : ''}</div></div>
+            <div class="row-right"><div class="row-title" style="font-size:15px;">${formatMoney(s.amount)}</div></div>
+          </div>`;
+      }).join('');
+    }
+
+    const photoSection = item.photoKey ? `
+      <div class="section-title" style="margin-top:24px;">Foto del ticket</div>
+      <img src="${PHOTO_URL}?key=${encodeURIComponent(item.photoKey)}" class="photo-preview" style="max-height:320px;" />
+    ` : '';
+
+    const delAction = isExpense ? 'delete-expense' : 'delete-payment';
+
+    app.innerHTML = `
+      <div class="topbar">
+        <button class="back-btn" data-action="back-to-group">←</button>
+        <h2>${isExpense ? 'Detalle del gasto' : 'Detalle de la liquidación'}</h2>
+      </div>
+      <div class="section screen-pad-bottom">
+        ${state.error ? `<div class="error-banner">${escapeHtml(state.error)}</div>` : ''}
+
+        <div class="center-col" style="min-height:auto;padding:16px 8px 8px;gap:8px;">
+          ${headerIcon}
+          <h2 style="margin:8px 0 0;text-align:center;">${headerTitle}</h2>
+          <div style="font-size:32px;font-weight:800;">${formatMoney(item.amount)}</div>
+          ${cat ? `<div class="movement-cat-chip">${cat.emoji} ${escapeHtml(cat.label)}</div>` : ''}
+        </div>
+
+        <div class="card" style="margin-top:16px;">
+          <div class="list-row">
+            <div class="row-main">
+              <div class="row-sub">Añadido por</div>
+              <div class="row-title" style="font-size:15px;">${escapeHtml(creator ? creator.name : '?')}${creator && creator.id === meId ? ' (tú)' : ''}</div>
+            </div>
+          </div>
+          <div class="list-row">
+            <div class="row-main">
+              <div class="row-sub">Fecha y hora</div>
+              <div class="row-title" style="font-size:15px;">${escapeHtml(dateLabel)}${timeLabel ? ` · ${escapeHtml(timeLabel)}` : ''}</div>
+            </div>
+          </div>
+        </div>
+
+        ${isExpense ? `
+          <div class="section-title" style="margin-top:24px;">Reparto</div>
+          <div class="card">${breakdownRows}</div>
+        ` : ''}
+
+        ${photoSection}
+
+        <button class="btn btn-danger-text btn-block" style="margin-top:24px;" data-action="${delAction}" data-id="${escapeHtml(item.id)}">Eliminar este movimiento</button>
       </div>`;
   }
 
@@ -1339,7 +1450,7 @@
       }
       const { group: updated } = await apiPost('add_expense', {
         groupCode: state.code,
-        expense: { description, amount: amountCents, paidBy, date, category: draft.category, splitType: draft.splitType, splits, photoKey },
+        expense: { description, amount: amountCents, paidBy, createdBy: state.meId, date, category: draft.category, splitType: draft.splitType, splits, photoKey },
       });
       state.group = updated;
       state.busy = false;
@@ -1365,7 +1476,7 @@
     try {
       const { group } = await apiPost('add_payment', {
         groupCode: state.code,
-        payment: { fromMemberId, toMemberId, amount: amountCents, date: todayStr() },
+        payment: { fromMemberId, toMemberId, amount: amountCents, createdBy: state.meId, date: todayStr() },
       });
       state.group = group;
       state.busy = false;
@@ -1385,6 +1496,9 @@
       const { group } = await apiPost('delete_expense', { groupCode: state.code, expenseId: id });
       state.group = group;
       state.error = null;
+      viewingItem = null;
+      state.screen = 'group';
+      state.groupTab = 'actividad';
       render();
     } catch (err) {
       setError(err.message);
@@ -1396,6 +1510,9 @@
       const { group } = await apiPost('delete_payment', { groupCode: state.code, paymentId: id });
       state.group = group;
       state.error = null;
+      viewingItem = null;
+      state.screen = 'group';
+      state.groupTab = 'actividad';
       render();
     } catch (err) {
       setError(err.message);
@@ -1428,8 +1545,13 @@
     if (action === 'show-create') { state.screen = 'create'; state.error = null; return render(); }
     if (action === 'show-join') { state.screen = 'join'; state.error = null; return render(); }
     if (action === 'open-group') return openGroup(target.dataset.code, target.dataset.member);
-    if (action === 'back-to-group') { state.screen = 'group'; state.error = null; draft = null; return render(); }
+    if (action === 'back-to-group') { state.screen = 'group'; state.error = null; draft = null; viewingItem = null; return render(); }
     if (action === 'open-settings') { state.screen = 'settings'; state.error = null; return render(); }
+    if (action === 'toggle-mute') {
+      state.muted = !state.muted;
+      saveMuted(state.muted);
+      return render();
+    }
     if (action === 'set-tab') { state.groupTab = target.dataset.tab; return render(); }
     if (action === 'set-filter') { state.activityFilter = target.dataset.filter; return render(); }
     if (action === 'show-add-expense') { draft = null; state.screen = 'addExpense'; state.error = null; return render(); }
@@ -1494,6 +1616,17 @@
     if (action === 'view-photo') {
       window.open(`${PHOTO_URL}?key=${encodeURIComponent(target.dataset.key)}`, '_blank');
       return;
+    }
+
+    if (action === 'view-movement') {
+      const type = target.dataset.type;
+      const id = target.dataset.id;
+      const item = buildActivityList(state.group).find((x) => x.type === type && x.id === id);
+      if (!item) return;
+      viewingItem = item;
+      state.screen = 'movementDetail';
+      state.error = null;
+      return render();
     }
 
     if (action === 'remove-photo') {

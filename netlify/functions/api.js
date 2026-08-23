@@ -145,11 +145,14 @@ export default async (req) => {
         return json(400, { error: 'El reparto no cuadra con el importe total' });
       }
 
+      const createdBy = (e.createdBy && group.members.some((m) => m.id === e.createdBy)) ? e.createdBy : e.paidBy;
+
       const expense = {
         id: genId('e'),
         description,
         amount,
         paidBy: e.paidBy,
+        createdBy,
         date: e.date || nowIso().slice(0, 10),
         splitType: e.splitType === 'custom' ? 'custom' : 'equal',
         splits: splits.map((x) => ({ memberId: x.memberId, amount: Math.round(Number(x.amount) || 0) })),
@@ -177,11 +180,14 @@ export default async (req) => {
       if (!p.fromMemberId || !p.toMemberId) return json(400, { error: 'Faltan los participantes del pago' });
       if (p.fromMemberId === p.toMemberId) return json(400, { error: 'No puedes pagarte a ti mismo' });
 
+      const paymentCreatedBy = (p.createdBy && group.members.some((m) => m.id === p.createdBy)) ? p.createdBy : p.fromMemberId;
+
       const payment = {
         id: genId('p'),
         fromMemberId: p.fromMemberId,
         toMemberId: p.toMemberId,
         amount,
+        createdBy: paymentCreatedBy,
         date: p.date || nowIso().slice(0, 10),
         note: (p.note || '').trim(),
         createdAt: nowIso(),
