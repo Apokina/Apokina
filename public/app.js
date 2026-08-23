@@ -485,6 +485,9 @@
   function showSplash(next) {
     state.screen = 'splash';
     render();
+    // Sonido al arrancar (mejor esfuerzo: algunos móviles bloquean cualquier
+    // sonido hasta que el usuario ha tocado la pantalla al menos una vez).
+    playCashRegisterSound();
     setTimeout(() => {
       const el = document.querySelector('.splash');
       if (el) el.classList.add('splash-fade-out');
@@ -665,6 +668,8 @@
         <button class="tab ${state.groupTab === 'saldos' ? 'active' : ''}" data-action="set-tab" data-tab="saldos">Saldos</button>
         <button class="tab ${state.groupTab === 'actividad' ? 'active' : ''}" data-action="set-tab" data-tab="actividad">Actividad</button>
       </div>
+
+      ${state.error ? `<div class="error-banner">${escapeHtml(state.error)}</div>` : ''}
 
       ${state.groupTab === 'saldos' ? `
         <div class="section screen-pad-bottom">
@@ -1379,10 +1384,10 @@
     try {
       const { group } = await apiPost('delete_expense', { groupCode: state.code, expenseId: id });
       state.group = group;
+      state.error = null;
       render();
-      toast('Gasto eliminado');
     } catch (err) {
-      toast(err.message);
+      setError(err.message);
     }
   }
 
@@ -1390,24 +1395,23 @@
     try {
       const { group } = await apiPost('delete_payment', { groupCode: state.code, paymentId: id });
       state.group = group;
+      state.error = null;
       render();
-      toast('Liquidación eliminada');
     } catch (err) {
-      toast(err.message);
+      setError(err.message);
     }
   }
 
   async function changeAvatar(file) {
     try {
       const dataUrl = await compressImage(file, 480, 0.75);
-      toast('Subiendo foto…');
       const photoKey = await uploadPhoto(state.code, dataUrl, state.meId);
       const { group } = await apiPost('set_member_photo', { groupCode: state.code, memberId: state.meId, photoKey });
       state.group = group;
+      state.error = null;
       render();
-      toast('Foto actualizada');
     } catch (err) {
-      toast(err.message);
+      setError('No se ha podido subir la foto: ' + err.message);
     }
   }
 
