@@ -1,4 +1,3 @@
-js
 // Sirve el archivo de verificacion de Android (Digital Asset Links) en
 // /.well-known/assetlinks.json sin necesidad de subir un archivo suelto
 // con carpeta oculta a GitHub. Esta funcion genera esa respuesta directamente.
