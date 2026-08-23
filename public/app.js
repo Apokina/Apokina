@@ -248,6 +248,77 @@
   const toastEl = document.getElementById('toast');
   let toastTimer = null;
 
+  // ---------------------------------------------------------------------
+  // Decoración de fondo: dinero flotando en TODAS las pantallas
+  // ---------------------------------------------------------------------
+
+  function setupMoneyDecor() {
+    const el = document.getElementById('moneyDecor');
+    if (!el) return;
+    const emojis = ['🪙', '💶', '💸', '💰'];
+    const COUNT = 16;
+    let html = '';
+    for (let i = 0; i < COUNT; i++) {
+      const emoji = emojis[i % emojis.length];
+      const left = Math.round(Math.random() * 94);
+      const top = Math.round(Math.random() * 92);
+      const size = 20 + Math.round(Math.random() * 26);
+      const delay = (Math.random() * 4).toFixed(2);
+      const duration = (4 + Math.random() * 3.5).toFixed(2);
+      html += `<span style="left:${left}%;top:${top}%;font-size:${size}px;animation-delay:${delay}s;animation-duration:${duration}s;">${emoji}</span>`;
+    }
+    el.innerHTML = html;
+  }
+
+  // ---------------------------------------------------------------------
+  // Sonido de caja registradora ("chin chin") al añadir gastos o pagos
+  // ---------------------------------------------------------------------
+
+  let audioCtx = null;
+
+  function getAudioCtx() {
+    if (!audioCtx) {
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (e) {
+        audioCtx = null;
+      }
+    }
+    return audioCtx;
+  }
+
+  function playCashRegisterSound() {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.value = 1; // volumen al máximo
+    master.connect(ctx.destination);
+
+    function ding(freq, start, duration, type) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + start);
+      gain.gain.exponentialRampToValueAtTime(1, now + start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + start + duration);
+      osc.connect(gain);
+      gain.connect(master);
+      osc.start(now + start);
+      osc.stop(now + start + duration + 0.05);
+    }
+
+    ding(1568, 0, 0.16, 'sine');
+    ding(2093, 0.08, 0.24, 'sine');
+    ding(3136, 0.08, 0.32, 'triangle');
+  }
+
+  // Crea el contexto de audio en el primer toque del usuario (algunos móviles
+  // exigen que el sonido se "desbloquee" con una interacción real).
+  document.addEventListener('pointerdown', () => { getAudioCtx(); }, { once: true, passive: true });
+
   function toast(msg) {
     toastEl.textContent = msg;
     toastEl.classList.add('show');
@@ -337,6 +408,7 @@
   // ---------------------------------------------------------------------
 
   function render() {
+    if (state.screen === 'splash') return renderSplash();
     if (state.screen === 'loading') return renderLoading();
     if (state.screen === 'home') return renderHome();
     if (state.screen === 'create') return renderCreate();
@@ -356,6 +428,40 @@
   }
 
   // ---------------------------------------------------------------------
+  // Pantalla: intro / splash al arrancar (dura ~2 segundos)
+  // ---------------------------------------------------------------------
+
+  function renderSplash() {
+    const emojis = ['🪙', '💶', '💸', '💰'];
+    let coinsHtml = '';
+    const COUNT = 55;
+    for (let i = 0; i < COUNT; i++) {
+      const emoji = emojis[i % emojis.length];
+      const left = Math.round(Math.random() * 96);
+      const delay = (Math.random() * 1.5).toFixed(2);
+      const duration = (1.2 + Math.random() * 1.0).toFixed(2);
+      const size = 16 + Math.round(Math.random() * 18);
+      coinsHtml += `<span style="left:${left}%;font-size:${size}px;animation-delay:${delay}s;animation-duration:${duration}s;">${emoji}</span>`;
+    }
+    app.innerHTML = `
+      <div class="splash">
+        <div class="splash-coins">${coinsHtml}</div>
+        <div class="splash-logo">🪙</div>
+        <h1 class="splash-title">Apokina<span>la pasta</span></h1>
+      </div>`;
+  }
+
+  function showSplash(next) {
+    state.screen = 'splash';
+    render();
+    setTimeout(() => {
+      const el = document.querySelector('.splash');
+      if (el) el.classList.add('splash-fade-out');
+      setTimeout(next, 380);
+    }, 1600);
+  }
+
+  // ---------------------------------------------------------------------
   // Pantalla: inicio / mis grupos
   // ---------------------------------------------------------------------
 
@@ -364,8 +470,8 @@
     if (groups.length === 0) {
       app.innerHTML = `
         <div class="center-col">
-          <div class="big-emoji">💶</div>
-          <h1 style="margin:4px 0;">Gastos Compartidos</h1>
+          <div class="big-emoji">🪙</div>
+          <h1 style="margin:4px 0;">Apokina la Pasta</h1>
           <p class="hint" style="max-width:280px;">Reparte gastos con tu cuñado y tus amigos, y ve al momento quién debe qué a quién.</p>
           <div class="welcome-actions" style="width:100%;max-width:320px;margin-top:20px;">
             <button class="btn btn-primary btn-block" data-action="show-create">➕ Crear un grupo nuevo</button>
@@ -387,6 +493,7 @@
 
     app.innerHTML = `
       <div class="hero">
+        <div class="hero-float-icon">💸</div>
         <div class="hero-top">
           <div></div>
           <h1 style="margin:0;font-size:20px;">Tus grupos</h1>
@@ -500,12 +607,11 @@
       return item.involves.includes(state.activityFilter);
     });
 
-    const activityRows = filteredActivity.length === 0
-      ? `<div class="empty"><div class="big-emoji">🧾</div>Todavía no hay movimientos.</div>`
-      : filteredActivity.map(renderActivityRow).join('');
+    const activityRows = renderActivitySections(filteredActivity, state.meId);
 
     app.innerHTML = `
       <div class="hero">
+        <div class="hero-float-icon">💸</div>
         <div class="hero-top">
           <button class="icon-btn" data-action="go-home">←</button>
           <h1 style="margin:0;">${escapeHtml(group.name)}</h1>
@@ -537,7 +643,7 @@
       ` : `
         <div class="filter-scroll">${filterChips}</div>
         <div class="section screen-pad-bottom" style="padding-top:0;">
-          <div class="card">${activityRows}</div>
+          ${activityRows}
           <button class="btn btn-secondary btn-block" style="margin-top:14px;" data-action="export-csv">📤 Exportar movimientos (Excel/CSV)</button>
         </div>
       `}
@@ -557,7 +663,9 @@
         createdAt: e.createdAt,
         id: e.id,
         title: e.description,
-        sub: `${payer ? payer.name : '?'} pagó`,
+        payerName: payer ? payer.name : '?',
+        paidBy: e.paidBy,
+        splits: e.splits,
         amount: e.amount,
         photoKey: e.photoKey,
         category: e.category || 'otros',
@@ -572,8 +680,10 @@
         date: p.date,
         createdAt: p.createdAt,
         id: p.id,
-        title: `${from ? from.name : '?'} pagó a ${to ? to.name : '?'}`,
-        sub: 'Liquidación',
+        fromMemberId: p.fromMemberId,
+        toMemberId: p.toMemberId,
+        fromName: from ? from.name : '?',
+        toName: to ? to.name : '?',
         amount: p.amount,
         involves: [p.fromMemberId, p.toMemberId],
       });
@@ -582,26 +692,99 @@
     return items;
   }
 
-  function renderActivityRow(item) {
-    const cat = item.type === 'expense' ? getCategory(item.category) : null;
-    const iconStyle = item.type === 'expense'
-      ? `background:${cat.color}22;color:${cat.color};`
-      : `background:var(--teal-light);color:var(--teal-dark);`;
-    const icon = item.type === 'expense' ? cat.emoji : '💸';
+  function capitalize(s) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  }
+
+  // Agrupa los movimientos por mes para que se vean en secciones ordenadas, no todos mezclados.
+  function groupActivityByMonth(items) {
+    const groups = [];
+    let current = null;
+    for (const item of items) {
+      const d = item.date ? new Date(item.date.length <= 10 ? item.date + 'T00:00:00' : item.date) : null;
+      const key = d ? `${d.getFullYear()}-${d.getMonth()}` : 'sin-fecha';
+      if (!current || current.key !== key) {
+        current = {
+          key,
+          label: d ? capitalize(d.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })) : 'Sin fecha',
+          items: [],
+        };
+        groups.push(current);
+      }
+      current.items.push(item);
+    }
+    return groups;
+  }
+
+  function renderActivitySections(items, meId) {
+    if (items.length === 0) {
+      return `<div class="empty"><div class="big-emoji">🧾</div>Todavía no hay movimientos.</div>`;
+    }
+    const groups = groupActivityByMonth(items);
+    return groups.map((g) => `
+      <div class="activity-section-title">${escapeHtml(g.label)}</div>
+      <div class="card activity-card">${g.items.map((item) => renderActivityRow(item, meId)).join('')}</div>
+    `).join('');
+  }
+
+  function renderActivityRow(item, meId) {
+    const isExpense = item.type === 'expense';
+    const cat = isExpense ? getCategory(item.category) : null;
+    const iconStyle = isExpense ? `background:${cat.color};` : `background:var(--teal);`;
+    const icon = isExpense ? cat.emoji : '🤝';
     const photoBtn = item.photoKey
       ? `<button class="btn btn-secondary btn-sm" data-action="view-photo" data-key="${escapeHtml(item.photoKey)}" style="margin-top:6px;">📷 Ver foto</button>`
       : '';
-    const delAction = item.type === 'expense' ? 'delete-expense' : 'delete-payment';
+    const delAction = isExpense ? 'delete-expense' : 'delete-payment';
+
+    let title, sub, rightLabel, rightClass, rightSecondary = '';
+
+    if (isExpense) {
+      title = escapeHtml(item.title);
+      const payerBit = item.paidBy === meId ? 'Tú pagaste' : `${escapeHtml(item.payerName)} pagó`;
+      sub = `${payerBit} · ${formatDate(item.date)} · ${escapeHtml(cat.label)}`;
+      const mySplit = (item.splits || []).find((s) => s.memberId === meId);
+      const myShare = mySplit ? mySplit.amount : 0;
+      if (item.paidBy === meId) {
+        const lent = item.amount - myShare;
+        if (lent > 0) { rightLabel = `prestaste ${formatMoney(lent)}`; rightClass = 'amount-owed'; }
+        else { rightLabel = formatMoney(item.amount); rightClass = 'amount-neutral'; }
+      } else if (mySplit) {
+        rightLabel = `pediste prestado ${formatMoney(myShare)}`;
+        rightClass = 'amount-owe';
+      } else {
+        rightLabel = formatMoney(item.amount);
+        rightClass = 'amount-neutral';
+      }
+      rightSecondary = formatMoney(item.amount);
+    } else {
+      if (item.fromMemberId === meId) {
+        title = `Le pagaste a ${escapeHtml(item.toName)}`;
+        rightLabel = `pagaste ${formatMoney(item.amount)}`;
+        rightClass = 'amount-owe';
+      } else if (item.toMemberId === meId) {
+        title = `${escapeHtml(item.fromName)} te pagó`;
+        rightLabel = `recibiste ${formatMoney(item.amount)}`;
+        rightClass = 'amount-owed';
+      } else {
+        title = `${escapeHtml(item.fromName)} pagó a ${escapeHtml(item.toName)}`;
+        rightLabel = formatMoney(item.amount);
+        rightClass = 'amount-neutral';
+      }
+      sub = `Liquidación · ${formatDate(item.date)}`;
+    }
+
     return `
-      <div class="list-row" style="align-items:flex-start;">
-        <div class="avatar" style="${iconStyle}font-size:19px;">${icon}</div>
+      <div class="list-row activity-row">
+        <div class="cat-icon" style="${iconStyle}">${icon}</div>
         <div class="row-main">
-          <div class="row-title">${escapeHtml(item.title)}</div>
-          <div class="row-sub">${escapeHtml(item.sub)} · ${formatDate(item.date)}${cat ? ` · ${escapeHtml(cat.label)}` : ''}</div>
+          <div class="row-title">${title}</div>
+          <div class="row-sub">${sub}</div>
           ${photoBtn}
         </div>
         <div class="row-right">
-          <div class="row-title">${formatMoney(item.amount)}</div>
+          <div class="row-title ${rightClass}" style="font-size:14px;">${rightLabel}</div>
+          ${isExpense && rightClass !== 'amount-neutral' ? `<div class="row-sub">${rightSecondary}</div>` : ''}
           <button class="btn-danger-text btn-sm" data-action="${delAction}" data-id="${escapeHtml(item.id)}">Eliminar</button>
         </div>
       </div>`;
@@ -616,25 +799,27 @@
     const items = buildActivityList(group).slice().reverse(); // orden cronológico
     const rows = [['Fecha', 'Tipo', 'Categoría', 'Descripción', 'Quién pagó / De', 'Para (si es pago)', 'Importe (€)']];
     for (const item of items) {
-      const cat = item.type === 'expense' ? getCategory(item.category).label : '';
-      let quien = '';
-      let para = '';
       if (item.type === 'expense') {
-        quien = item.sub.replace(' pagó', '');
+        rows.push([
+          item.date || '',
+          'Gasto',
+          getCategory(item.category).label,
+          item.title,
+          item.payerName,
+          '',
+          (item.amount / 100).toFixed(2).replace('.', ','),
+        ]);
       } else {
-        const parts = item.title.split(' pagó a ');
-        quien = parts[0] || '';
-        para = parts[1] || '';
+        rows.push([
+          item.date || '',
+          'Liquidación',
+          '',
+          `Pago de ${item.fromName} a ${item.toName}`,
+          item.fromName,
+          item.toName,
+          (item.amount / 100).toFixed(2).replace('.', ','),
+        ]);
       }
-      rows.push([
-        item.date || '',
-        item.type === 'expense' ? 'Gasto' : 'Liquidación',
-        cat,
-        item.title,
-        quien,
-        para,
-        (item.amount / 100).toFixed(2).replace('.', ','),
-      ]);
     }
     const csv = rows.map((r) => r.map((cell) => {
       const s = String(cell == null ? '' : cell);
@@ -882,8 +1067,21 @@
 
           <div class="field">
             <label>Foto del ticket (opcional)</label>
-            <input type="file" accept="image/*" capture="environment" data-role="photo-input" />
-            ${draft.photoPreview ? `<img src="${draft.photoPreview}" class="photo-preview" />` : ''}
+            <div class="photo-btn-row">
+              <label class="btn btn-secondary photo-btn">
+                📷 Hacer foto
+                <input type="file" accept="image/*" capture="environment" data-role="photo-input-camera" style="display:none;" />
+              </label>
+              <label class="btn btn-secondary photo-btn">
+                🖼️ Elegir de galería
+                <input type="file" accept="image/*" data-role="photo-input-gallery" style="display:none;" />
+              </label>
+            </div>
+            ${draft.photoPreview ? `
+              <div class="photo-preview-wrap">
+                <img src="${draft.photoPreview}" class="photo-preview" />
+                <button type="button" class="btn-danger-text btn-sm" data-action="remove-photo">Quitar foto</button>
+              </div>` : ''}
           </div>
 
           ${pair ? `
@@ -1115,6 +1313,7 @@
       state.screen = 'group';
       state.groupTab = 'actividad';
       render();
+      playCashRegisterSound();
       toast('Gasto añadido');
     } catch (err) {
       state.busy = false;
@@ -1139,6 +1338,7 @@
       draft = null;
       state.screen = 'group';
       render();
+      playCashRegisterSound();
       toast('Deuda liquidada');
     } catch (err) {
       state.busy = false;
@@ -1262,6 +1462,12 @@
       window.open(`${PHOTO_URL}?key=${encodeURIComponent(target.dataset.key)}`, '_blank');
       return;
     }
+
+    if (action === 'remove-photo') {
+      draft.photoBase64 = null;
+      draft.photoPreview = null;
+      return renderAddExpense();
+    }
   });
 
   app.addEventListener('change', (e) => {
@@ -1276,7 +1482,7 @@
       draft.quickChoice = e.target.value;
       return renderAddExpense();
     }
-    if (e.target.matches('[data-role="photo-input"]')) {
+    if (e.target.matches('[data-role="photo-input-camera"], [data-role="photo-input-gallery"]')) {
       const file = e.target.files[0];
       if (!file) return;
       compressImage(file).then((dataUrl) => {
@@ -1317,23 +1523,25 @@
   // ---------------------------------------------------------------------
 
   function init() {
-    const params = new URLSearchParams(location.search);
-    const joinCode = params.get('join');
+    showSplash(() => {
+      const params = new URLSearchParams(location.search);
+      const joinCode = params.get('join');
 
-    if (joinCode) {
-      const existing = state.device.groups.find((g) => g.code === joinCode.toUpperCase());
-      if (existing) {
-        openGroup(existing.code, existing.memberId);
-      } else {
-        state.prefillJoinCode = joinCode.toUpperCase();
-        state.screen = 'join';
-        render();
+      if (joinCode) {
+        const existing = state.device.groups.find((g) => g.code === joinCode.toUpperCase());
+        if (existing) {
+          openGroup(existing.code, existing.memberId);
+        } else {
+          state.prefillJoinCode = joinCode.toUpperCase();
+          state.screen = 'join';
+          render();
+        }
+        return;
       }
-      return;
-    }
 
-    state.screen = 'home';
-    render();
+      state.screen = 'home';
+      render();
+    });
   }
 
   if ('serviceWorker' in navigator) {
@@ -1342,5 +1550,6 @@
     });
   }
 
+  setupMoneyDecor();
   init();
 })();

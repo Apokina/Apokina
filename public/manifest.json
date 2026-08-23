@@ -1,7 +1,7 @@
 {
-  "name": "Gastos Compartidos",
-  "short_name": "Gastos",
-  "description": "Reparte y liquida gastos con tu cuñado y amigos",
+  "name": "Apokina la Pasta",
+  "short_name": "Apokina",
+  "description": "Reparte y liquida gastos con tu cuñado y amigos, y que cada uno apoquine lo suyo",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
