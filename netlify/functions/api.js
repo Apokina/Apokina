@@ -105,6 +105,7 @@ export default async (req) => {
         members: [{ id: memberId, name: memberName, joinedAt: nowIso() }],
         expenses: [],
         payments: [],
+        messages: [],
       };
       await store.setJSON(code, group);
       return json(200, { group, memberId });
@@ -283,6 +284,44 @@ export default async (req) => {
         group.updatedAt = nowIso();
         await store.setJSON(code, group);
       }
+      return json(200, { group });
+    }
+
+    if (action === 'send_message') {
+      const itemType = payload.itemType === 'payment' ? 'payment' : 'expense';
+      const itemId = (payload.itemId || '').trim();
+      const text = (payload.text || '').trim();
+      const memberId = payload.memberId;
+      if (!itemId) return json(400, { error: 'Falta el movimiento' });
+      if (!text) return json(400, { error: 'Escribe un mensaje' });
+      if (text.length > 500) return json(400, { error: 'El mensaje es demasiado largo' });
+      if (!memberId || !group.members.some((m) => m.id === memberId)) {
+        return json(400, { error: 'Remitente no válido' });
+      }
+
+      if (!group.messages) group.messages = [];
+      const message = { id: genId('msg'), itemType, itemId, memberId, text, createdAt: nowIso() };
+      group.messages.push(message);
+      group.updatedAt = nowIso();
+      await store.setJSON(code, group);
+
+      // Aviso push a las demás personas implicadas en este movimiento.
+      let involvedIds = [];
+      if (itemType === 'expense') {
+        const exp = group.expenses.find((e) => e.id === itemId);
+        if (exp) involvedIds = [exp.paidBy, exp.createdBy, ...exp.splits.map((s) => s.memberId)];
+      } else {
+        const pay = group.payments.find((p) => p.id === itemId);
+        if (pay) involvedIds = [pay.fromMemberId, pay.toMemberId, pay.createdBy];
+      }
+      const sender = group.members.find((m) => m.id === memberId);
+      const chatTargets = group.members.filter((m) => involvedIds.includes(m.id) && m.id !== memberId);
+      await Promise.all(chatTargets.map((m) => pushToMember(m, {
+        title: `${sender ? sender.name : 'Alguien'} te ha escrito`,
+        body: text.length > 80 ? text.slice(0, 77) + '...' : text,
+        tag: 'apokina-chat',
+      })));
+
       return json(200, { group });
     }
 

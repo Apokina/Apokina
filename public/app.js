@@ -114,15 +114,25 @@
   // Almacenamiento local del dispositivo
   // ---------------------------------------------------------------------
 
+  // Identificador aleatorio para este dispositivo/persona (para la foto de
+  // perfil compartida entre grupos, no es un id sensible ni de seguridad).
+  function randomId() {
+    return 'a' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
   function loadDevice() {
     try {
       const raw = localStorage.getItem(DEVICE_KEY);
-      if (!raw) return { groups: [] };
-      const parsed = JSON.parse(raw);
-      if (!parsed.groups) parsed.groups = [];
+      const parsed = raw ? JSON.parse(raw) : {};
+      let changed = !raw;
+      if (!parsed.groups) { parsed.groups = []; changed = true; }
+      if (!parsed.avatarId) { parsed.avatarId = randomId(); changed = true; }
+      if (changed) { try { localStorage.setItem(DEVICE_KEY, JSON.stringify(parsed)); } catch (e) { /* ignore */ } }
       return parsed;
     } catch (e) {
-      return { groups: [] };
+      const fresh = { groups: [], avatarId: randomId() };
+      try { localStorage.setItem(DEVICE_KEY, JSON.stringify(fresh)); } catch (e2) { /* ignore */ }
+      return fresh;
     }
   }
 
@@ -183,8 +193,8 @@
     return body.group;
   }
 
-  async function uploadPhoto(code, base64, avatarFor) {
-    const body = await apiPostRaw(PHOTO_URL, { groupCode: code, imageBase64: base64, avatarFor: avatarFor || undefined });
+  async function uploadPhoto(code, base64, avatarFor, global) {
+    const body = await apiPostRaw(PHOTO_URL, { groupCode: code, imageBase64: base64, avatarFor: avatarFor || undefined, global: global || undefined });
     return body.photoKey;
   }
 
@@ -433,7 +443,7 @@
   function startPolling() {
     stopPolling();
     state.pollTimer = setInterval(() => {
-      if (document.visibilityState === 'visible' && state.screen === 'group' && state.code) {
+      if (document.visibilityState === 'visible' && (state.screen === 'group' || state.screen === 'movementDetail') && state.code) {
         refreshGroup(true);
       }
     }, 7000);
@@ -452,13 +462,26 @@
       const group = await apiGetGroup(state.code);
       state.group = group;
       if (state.screen === 'group') render();
+      if (state.screen === 'movementDetail') {
+        // Al refrescar en segundo plano no queremos borrar lo que la persona
+        // está escribiendo en el chat, así que lo guardamos y lo devolvemos.
+        const input = document.querySelector('[data-role="chat-input"]');
+        const draftText = input ? input.value : '';
+        const hadFocus = !!input && input === document.activeElement;
+        render();
+        const newInput = document.querySelector('[data-role="chat-input"]');
+        if (newInput && draftText) {
+          newInput.value = draftText;
+          if (hadFocus) newInput.focus();
+        }
+      }
     } catch (err) {
       if (!silent) toast(err.message);
     }
   }
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && state.screen === 'group') {
+    if (document.visibilityState === 'visible' && (state.screen === 'group' || state.screen === 'movementDetail')) {
       refreshGroup(true);
     }
   });
@@ -912,9 +935,29 @@
 
     const delAction = isExpense ? 'delete-expense' : 'delete-payment';
 
+    // Comentarios (chat) de este movimiento en concreto.
+    const itemMessages = (group.messages || []).filter((m) => m.itemType === item.type && m.itemId === item.id);
+    const chatHtml = itemMessages.length === 0
+      ? `<div class="empty" style="padding:16px;">Todavía no hay comentarios. Escribe el primero 👇</div>`
+      : itemMessages.map((m) => {
+          const sender = group.members.find((mm) => mm.id === m.memberId) || UNKNOWN_MEMBER;
+          const mine = m.memberId === meId;
+          const time = m.createdAt ? new Date(m.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+          return `
+            <div class="chat-msg ${mine ? 'chat-msg-mine' : ''}">
+              ${avatarHtml(sender, 28)}
+              <div class="chat-bubble">
+                <div class="chat-msg-name">${escapeHtml(sender.name)}${mine ? ' (tú)' : ''}</div>
+                <div class="chat-msg-text">${escapeHtml(m.text)}</div>
+                <div class="chat-msg-time">${escapeHtml(time)}</div>
+              </div>
+            </div>`;
+        }).join('');
+
     app.innerHTML = `
       <div class="topbar">
         <button class="back-btn" data-action="back-to-group">←</button>
+        <button class="back-btn" data-action="go-home" title="Tus grupos" style="font-size:16px;">🏠</button>
         <h2>${isExpense ? 'Detalle del gasto' : 'Detalle de la liquidación'}</h2>
       </div>
       <div class="section screen-pad-bottom">
@@ -949,8 +992,20 @@
 
         ${photoSection}
 
+        <button class="btn btn-outline btn-block" style="margin-top:24px;" data-action="share-whatsapp" data-type="${item.type}" data-id="${escapeHtml(item.id)}">📲 Avisar por WhatsApp</button>
+
+        <div class="section-title" style="margin-top:24px;">Comentarios</div>
+        <div class="card chat-card" id="chatMessages">${chatHtml}</div>
+        <form data-form="chatMessage" class="chat-input-row">
+          <input type="text" name="text" data-role="chat-input" placeholder="Escribe un mensaje…" maxlength="500" autocomplete="off" required />
+          <button class="btn btn-primary btn-sm" type="submit">Enviar</button>
+        </form>
+
         <button class="btn btn-danger-text btn-block" style="margin-top:24px;" data-action="${delAction}" data-id="${escapeHtml(item.id)}">Eliminar este movimiento</button>
       </div>`;
+
+    const chatBox = document.getElementById('chatMessages');
+    if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
   }
 
   // ---------------------------------------------------------------------
@@ -1009,6 +1064,7 @@
     app.innerHTML = `
       <div class="topbar">
         <button class="back-btn" data-action="back-to-group">←</button>
+        <button class="back-btn" data-action="go-home" title="Tus grupos" style="font-size:16px;">🏠</button>
         <h2>Añadir persona</h2>
       </div>
       <div class="section">
@@ -1067,6 +1123,7 @@
     app.innerHTML = `
       <div class="topbar">
         <button class="back-btn" data-action="back-to-group">←</button>
+        <button class="back-btn" data-action="go-home" title="Tus grupos" style="font-size:16px;">🏠</button>
         <h2>Ajustes del grupo</h2>
       </div>
       <div class="section">
@@ -1228,6 +1285,7 @@
     app.innerHTML = `
       <div class="topbar">
         <button class="back-btn" data-action="back-to-group">←</button>
+        <button class="back-btn" data-action="go-home" title="Tus grupos" style="font-size:16px;">🏠</button>
         <h2>Nuevo gasto</h2>
       </div>
       <div class="section screen-pad-bottom">
@@ -1319,6 +1377,7 @@
     app.innerHTML = `
       <div class="topbar">
         <button class="back-btn" data-action="back-to-group">←</button>
+        <button class="back-btn" data-action="go-home" title="Tus grupos" style="font-size:16px;">🏠</button>
         <h2>Liquidar con ${escapeHtml(other ? other.name : '')}</h2>
       </div>
       <div class="section">
@@ -1389,6 +1448,10 @@
       const { group, memberId } = await apiPost('create_group', { groupName, memberName });
       rememberGroup(group.code, memberId, memberName, group.name);
       state.device = loadDevice();
+      if (state.device.avatarPhotoKey) {
+        // Ya tenías una foto de perfil guardada de otro grupo: se aplica sola aquí también.
+        await apiPost('set_member_photo', { groupCode: group.code, memberId, photoKey: state.device.avatarPhotoKey }).catch(() => {});
+      }
       state.busy = false;
       await openGroup(group.code, memberId);
       toast('¡Grupo creado! Comparte el código con tu gente.');
@@ -1406,6 +1469,10 @@
       const { group, memberId } = await apiPost('join_group', { groupCode, memberName });
       rememberGroup(group.code, memberId, memberName, group.name);
       state.device = loadDevice();
+      if (state.device.avatarPhotoKey) {
+        // Ya tenías una foto de perfil guardada de otro grupo: se aplica sola aquí también.
+        await apiPost('set_member_photo', { groupCode: group.code, memberId, photoKey: state.device.avatarPhotoKey }).catch(() => {});
+      }
       state.busy = false;
       state.prefillJoinCode = null;
       await openGroup(group.code, memberId);
@@ -1492,8 +1559,17 @@
       state.group = updated;
       state.busy = false;
       draft = null;
-      state.screen = 'group';
       state.groupTab = 'actividad';
+      // Abrimos el detalle del gasto recién creado: desde ahí se puede avisar
+      // por WhatsApp o dejar un comentario sin tener que buscarlo.
+      const newExpense = updated.expenses[updated.expenses.length - 1];
+      const newItem = buildActivityList(updated).find((x) => x.type === 'expense' && x.id === newExpense.id);
+      if (newItem) {
+        viewingItem = newItem;
+        state.screen = 'movementDetail';
+      } else {
+        state.screen = 'group';
+      }
       render();
       playCashRegisterSound();
       toast('Gasto añadido');
@@ -1556,10 +1632,37 @@
     }
   }
 
+  async function handleChatSubmit(form) {
+    const text = form.text.value.trim();
+    if (!text || !viewingItem) return;
+    form.text.value = '';
+    try {
+      const { group } = await apiPost('send_message', {
+        groupCode: state.code,
+        memberId: state.meId,
+        itemType: viewingItem.type,
+        itemId: viewingItem.id,
+        text,
+      });
+      state.group = group;
+      state.error = null;
+      render();
+      const input = document.querySelector('[data-role="chat-input"]');
+      if (input) input.focus();
+    } catch (err) {
+      setError('No se ha podido enviar el mensaje: ' + err.message);
+    }
+  }
+
   async function changeAvatar(file) {
     try {
       const dataUrl = await compressImage(file, 480, 0.75);
-      const photoKey = await uploadPhoto(state.code, dataUrl, state.meId);
+      // Se sube como foto "global" del dispositivo (no atada a este grupo), así
+      // se puede reutilizar automáticamente en cualquier otro grupo futuro.
+      const photoKey = await uploadPhoto(state.code, dataUrl, state.device.avatarId, true);
+      state.device.avatarPhotoKey = photoKey;
+      state.device.avatarUpdatedAt = new Date().toISOString();
+      saveDevice(state.device);
       const { group } = await apiPost('set_member_photo', { groupCode: state.code, memberId: state.meId, photoKey });
       state.group = group;
       state.error = null;
@@ -1737,6 +1840,26 @@
       return render();
     }
 
+    if (action === 'share-whatsapp') {
+      const type = target.dataset.type;
+      const id = target.dataset.id;
+      const item = buildActivityList(state.group).find((x) => x.type === type && x.id === id);
+      if (!item) return;
+      const link = `${location.origin}/?join=${state.group.code}`;
+      let text;
+      if (type === 'expense') {
+        const parts = (item.splits || []).map((s) => {
+          const m = state.group.members.find((mm) => mm.id === s.memberId);
+          return `${m ? m.name : '?'} ${formatMoney(s.amount)}`;
+        }).join(' · ');
+        text = `💸 Nuevo gasto en "${state.group.name}": "${item.title}" - ${formatMoney(item.amount)} (pagado por ${item.payerName}).\nReparto: ${parts}.\nMás info aquí: ${link}`;
+      } else {
+        text = `💰 Pago registrado en "${state.group.name}": ${item.fromName} pagó ${formatMoney(item.amount)} a ${item.toName}.\nMás info aquí: ${link}`;
+      }
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+      return;
+    }
+
     if (action === 'remove-photo') {
       draft.photoBase64 = null;
       draft.photoPreview = null;
@@ -1795,6 +1918,7 @@
     if (type === 'rename') return handleRenameSubmit(form);
     if (type === 'expense') return handleExpenseSubmit(form);
     if (type === 'settle') return handleSettleSubmit(form);
+    if (type === 'chatMessage') return handleChatSubmit(form);
   });
 
   // ---------------------------------------------------------------------

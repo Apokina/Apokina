@@ -884,3 +884,76 @@ input[type="checkbox"] {
   0%, 100% { transform: translateY(0) rotate(-10deg); }
   50% { transform: translateY(-24px) rotate(10deg); }
 }
+
+/* ---------- Comentarios (chat) dentro del detalle de un movimiento ---------- */
+.chat-card {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.chat-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-msg-mine {
+  flex-direction: row-reverse;
+}
+
+.chat-bubble {
+  background: var(--bg);
+  border-radius: 14px;
+  padding: 8px 12px;
+  max-width: 75%;
+}
+
+.chat-msg-mine .chat-bubble {
+  background: rgba(15, 157, 132, 0.14);
+}
+
+.chat-msg-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--teal);
+  margin-bottom: 2px;
+}
+
+.chat-msg-text {
+  font-size: 14px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-msg-time {
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+  text-align: right;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chat-input-row input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.chat-input-row input:focus {
+  outline: none;
+  border-color: var(--teal);
+}

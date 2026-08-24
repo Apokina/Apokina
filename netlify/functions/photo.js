@@ -41,17 +41,23 @@ export default async (req) => {
     const payload = await req.json();
     const code = (payload.groupCode || '').toUpperCase().trim();
     const base64 = (payload.imageBase64 || '').replace(/^data:image\/\w+;base64,/, '');
+    const isGlobalAvatar = !!(payload.global && payload.avatarFor);
 
-    if (!code || !base64) return json(400, { error: 'Faltan datos de la foto' });
+    if (!base64) return json(400, { error: 'Faltan datos de la foto' });
+    if (!isGlobalAvatar && !code) return json(400, { error: 'Faltan datos de la foto' });
 
     const buffer = Buffer.from(base64, 'base64');
     if (buffer.length > 3 * 1024 * 1024) return json(400, { error: 'La foto es demasiado grande' });
 
     // Las fotos de perfil usan una clave fija por persona, para que al cambiarla
     // se sustituya en vez de acumular fotos viejas sin usar.
-    const key = payload.avatarFor
-      ? `${code}/avatar-${payload.avatarFor}`
-      : `${code}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.jpg`;
+    // Las fotos de perfil "globales" (avatarId del dispositivo) no llevan el
+    // código de grupo por delante, así se pueden reutilizar en cualquier grupo.
+    const key = isGlobalAvatar
+      ? `avatars/${payload.avatarFor}`
+      : payload.avatarFor
+        ? `${code}/avatar-${payload.avatarFor}`
+        : `${code}/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.jpg`;
     await store.set(key, buffer);
     return json(200, { photoKey: key });
   } catch (err) {
