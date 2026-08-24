@@ -1899,11 +1899,35 @@
       if (file) changeAvatar(file);
       return;
     }
+    if (e.target.name === 'paidBy' && draft) {
+      draft.paidBy = e.target.value;
+      return;
+    }
   });
 
   app.addEventListener('input', (e) => {
-    if (e.target.matches('[data-role="custom-amount"]') || (e.target.name === 'amount' && draft)) {
+    // Guardamos lo que se va escribiendo en el borrador (draft) al momento,
+    // para que si se vuelve a dibujar la pantalla (por ejemplo al elegir
+    // "Se te debe la cantidad total" o marcar/desmarcar a alguien) no se
+    // borre lo que ya se había escrito en descripción, importe o fecha.
+    if (!draft) return;
+    if (e.target.name === 'description') {
+      draft.description = e.target.value;
+      return;
+    }
+    if (e.target.name === 'date') {
+      draft.date = e.target.value;
+      return;
+    }
+    if (e.target.matches('[data-role="custom-amount"]')) {
+      draft.customAmounts[e.target.dataset.member] = e.target.value;
       updateSplitSummary();
+      return;
+    }
+    if (e.target.name === 'amount') {
+      draft.amount = e.target.value;
+      updateSplitSummary();
+      return;
     }
   });
 
