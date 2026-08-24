@@ -8,6 +8,18 @@
   const API_URL = '/api';
   const PHOTO_URL = '/photo';
   const DEVICE_KEY = 'gc_device_v1';
+  const VAPID_PUBLIC_KEY = 'BCBWOGVoj-8y2kz9P85eOsXjCrxHR9fYf2B3c4F0VVwe2ve6wIpaYHKw3BWIeTMc5DKiSaKKDtRGscvfrNDhoOs';
+
+  // Convierte la clave pública VAPID (base64 "url-safe") al formato de bytes
+  // que pide PushManager.subscribe().
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
 
   const AVATAR_COLORS = [
     '#e07a5f', '#3d5a80', '#8d5a97', '#2a9d8f', '#e9963e',
@@ -251,6 +263,7 @@
     pollTimer: null,
     prefillJoinCode: null,
     muted: loadMuted(),
+    pushStatus: 'unknown', // 'unsupported' | 'denied' | 'off' | 'on'
   };
 
   let draft = null; // borrador del formulario de gasto/pago en curso
@@ -1012,6 +1025,24 @@
   // Pantalla: ajustes del grupo
   // ---------------------------------------------------------------------
 
+  function renderPushStatusBlock() {
+    const status = state.pushStatus || 'unknown';
+    if (status === 'unsupported') {
+      return `<div class="row-sub">Tu navegador no admite notificaciones push.</div>`;
+    }
+    if (status === 'denied') {
+      return `<div class="row-sub">Has bloqueado las notificaciones para esta app. Actívalas desde los ajustes de notificaciones de tu móvil o navegador para poder recibirlas.</div>`;
+    }
+    if (status === 'on') {
+      return `
+        <div class="row-sub">🔔 Activadas: te avisaremos en el móvil cuando alguien del grupo añada un gasto o registre un pago.</div>
+        <button class="btn btn-secondary btn-block" style="margin-top:10px;" data-action="disable-push">Desactivar notificaciones</button>`;
+    }
+    return `
+      <div class="row-sub">Recibe un aviso en el móvil cuando alguien del grupo añada un gasto o registre un pago que te afecte.</div>
+      <button class="btn btn-primary btn-block" style="margin-top:10px;" data-action="enable-push">🔔 Activar notificaciones</button>`;
+  }
+
   function renderSettings() {
     const group = state.group;
     const link = `${location.origin}/?join=${group.code}`;
@@ -1056,6 +1087,9 @@
 
         <div class="section-title" style="margin-top:24px;">Miembros</div>
         <div class="card">${memberRows}</div>
+
+        <div class="section-title" style="margin-top:24px;">Notificaciones</div>
+        <div class="card" style="padding:14px;">${renderPushStatusBlock()}</div>
 
         <div class="section-title" style="margin-top:24px;">Tus datos</div>
         <button class="btn btn-secondary btn-block" data-action="export-csv">📤 Exportar movimientos (Excel/CSV)</button>
@@ -1533,6 +1567,69 @@
   }
 
   // ---------------------------------------------------------------------
+  // Notificaciones push
+  // ---------------------------------------------------------------------
+
+  function pushSupported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  }
+
+  async function refreshPushStatus() {
+    if (!pushSupported()) { state.pushStatus = 'unsupported'; return; }
+    if (Notification.permission === 'denied') { state.pushStatus = 'denied'; return; }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      state.pushStatus = sub ? 'on' : 'off';
+    } catch (e) {
+      state.pushStatus = 'off';
+    }
+  }
+
+  async function enablePush() {
+    if (!pushSupported()) {
+      setError('Tu navegador no admite notificaciones.');
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        state.pushStatus = permission === 'denied' ? 'denied' : 'off';
+        setError('No se han activado las notificaciones.');
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+      }
+      await apiPost('save_push_subscription', { groupCode: state.code, memberId: state.meId, subscription: sub.toJSON() });
+      state.pushStatus = 'on';
+      state.error = null;
+      render();
+    } catch (err) {
+      setError('No se han podido activar las notificaciones: ' + err.message);
+    }
+  }
+
+  async function disablePush() {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await sub.unsubscribe();
+      await apiPost('remove_push_subscription', { groupCode: state.code, memberId: state.meId }).catch(() => {});
+      state.pushStatus = 'off';
+      state.error = null;
+      render();
+    } catch (err) {
+      setError('No se han podido desactivar las notificaciones: ' + err.message);
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Delegación de eventos
   // ---------------------------------------------------------------------
 
@@ -1546,7 +1643,15 @@
     if (action === 'show-join') { state.screen = 'join'; state.error = null; return render(); }
     if (action === 'open-group') return openGroup(target.dataset.code, target.dataset.member);
     if (action === 'back-to-group') { state.screen = 'group'; state.error = null; draft = null; viewingItem = null; return render(); }
-    if (action === 'open-settings') { state.screen = 'settings'; state.error = null; return render(); }
+    if (action === 'open-settings') {
+      state.screen = 'settings';
+      state.error = null;
+      render();
+      refreshPushStatus().then(render);
+      return;
+    }
+    if (action === 'enable-push') return enablePush();
+    if (action === 'disable-push') return disablePush();
     if (action === 'toggle-mute') {
       state.muted = !state.muted;
       saveMuted(state.muted);

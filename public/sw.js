@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gc-cache-v3';
+const CACHE_NAME = 'gc-cache-v4';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -45,5 +45,37 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => caches.match(event.request))
+  );
+});
+
+// ---------------------------------------------------------------------
+// Notificaciones push: alguien del grupo ha añadido un gasto o un pago
+// ---------------------------------------------------------------------
+
+self.addEventListener('push', (event) => {
+  let data = { title: 'Apokina la Pasta', body: 'Hay novedades en tu grupo' };
+  try {
+    if (event.data) data = event.data.json();
+  } catch (e) { /* si no viene JSON, usamos el mensaje por defecto */ }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Apokina la Pasta', {
+      body: data.body || '',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: data.tag || 'apokina-movimiento',
+      renotify: true,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
+      const existing = clientsArr.find((c) => 'focus' in c);
+      if (existing) return existing.focus();
+      return self.clients.openWindow('/');
+    })
   );
 });

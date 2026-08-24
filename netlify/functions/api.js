@@ -1,4 +1,26 @@
 import { getStore } from '@netlify/blobs';
+import webpush from 'web-push';
+
+// Claves VAPID para notificaciones push (identifican a este servidor ante
+// los navegadores). No pasa nada porque estén aquí "a la vista": la clave
+// privada solo se usa en este servidor, nunca se envía al navegador.
+const VAPID_PUBLIC_KEY = 'BCBWOGVoj-8y2kz9P85eOsXjCrxHR9fYf2B3c4F0VVwe2ve6wIpaYHKw3BWIeTMc5DKiSaKKDtRGscvfrNDhoOs';
+const VAPID_PRIVATE_KEY = 'z6eEPA7toamsbzhGqCJ0ryC9LlotXGmZEzYDa6r3rsw';
+webpush.setVapidDetails('mailto:no-reply@apokinapasta.netlify.app', VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+// Envía una notificación push a un miembro si tiene una suscripción guardada.
+// Si la suscripción ya no es válida (el usuario desinstaló la app, etc.)
+// simplemente la borramos de su ficha para no reintentar en el futuro.
+async function pushToMember(member, payload) {
+  if (!member || !member.pushSubscription) return;
+  try {
+    await webpush.sendNotification(member.pushSubscription, JSON.stringify(payload));
+  } catch (err) {
+    if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+      member.pushSubscription = null;
+    }
+  }
+}
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I/L para evitar confusiones
 
@@ -163,6 +185,18 @@ export default async (req) => {
       group.expenses.push(expense);
       group.updatedAt = nowIso();
       await store.setJSON(code, group);
+
+      // Aviso push a quienes participan en el reparto (menos a quien lo creó).
+      const expenseCreator = group.members.find((m) => m.id === createdBy);
+      const shareByMember = {};
+      expense.splits.forEach((s) => { shareByMember[s.memberId] = s.amount; });
+      const expenseTargets = group.members.filter((m) => m.id !== createdBy && shareByMember[m.id] !== undefined);
+      await Promise.all(expenseTargets.map((m) => pushToMember(m, {
+        title: `Nuevo gasto en ${group.name}`,
+        body: `${expenseCreator ? expenseCreator.name : 'Alguien'} añadió "${expense.description}" · te tocan ${(shareByMember[m.id] / 100).toFixed(2).replace('.', ',')}€`,
+        tag: 'apokina-expense',
+      })));
+
       return json(200, { group });
     }
 
@@ -195,6 +229,17 @@ export default async (req) => {
       group.payments.push(payment);
       group.updatedAt = nowIso();
       await store.setJSON(code, group);
+
+      // Aviso push a la otra persona implicada en el pago (quien no lo registró).
+      const fromMember = group.members.find((m) => m.id === p.fromMemberId);
+      const toMember = group.members.find((m) => m.id === p.toMemberId);
+      const paymentTarget = paymentCreatedBy === p.fromMemberId ? toMember : fromMember;
+      await pushToMember(paymentTarget, {
+        title: `Pago registrado en ${group.name}`,
+        body: `${fromMember ? fromMember.name : '?'} pagó ${(amount / 100).toFixed(2).replace('.', ',')}€ a ${toMember ? toMember.name : '?'}`,
+        tag: 'apokina-payment',
+      });
+
       return json(200, { group });
     }
 
@@ -212,6 +257,29 @@ export default async (req) => {
       member.photoKey = payload.photoKey || null;
       group.updatedAt = nowIso();
       await store.setJSON(code, group);
+      return json(200, { group });
+    }
+
+    if (action === 'save_push_subscription') {
+      const memberId = payload.memberId;
+      const member = group.members.find((m) => m.id === memberId);
+      if (!member) return json(404, { error: 'No se encuentra a esa persona en el grupo' });
+      const subscription = payload.subscription;
+      if (!subscription || !subscription.endpoint) return json(400, { error: 'Suscripción no válida' });
+      member.pushSubscription = subscription;
+      group.updatedAt = nowIso();
+      await store.setJSON(code, group);
+      return json(200, { group });
+    }
+
+    if (action === 'remove_push_subscription') {
+      const memberId = payload.memberId;
+      const member = group.members.find((m) => m.id === memberId);
+      if (member) {
+        member.pushSubscription = null;
+        group.updatedAt = nowIso();
+        await store.setJSON(code, group);
+      }
       return json(200, { group });
     }
 
