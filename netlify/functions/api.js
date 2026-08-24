@@ -255,6 +255,9 @@ export default async (req) => {
       const member = group.members.find((m) => m.id === memberId);
       if (!member) return json(404, { error: 'No se encuentra a esa persona en el grupo' });
       member.photoKey = payload.photoKey || null;
+      // Marca de tiempo para forzar que el navegador recargue la foto en vez de
+      // seguir enseñando la anterior (la URL de la foto siempre es la misma).
+      member.photoUpdatedAt = nowIso();
       group.updatedAt = nowIso();
       await store.setJSON(code, group);
       return json(200, { group });

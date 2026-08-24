@@ -102,7 +102,10 @@
   function avatarHtml(member, size) {
     size = size || 44;
     if (member.photoKey) {
-      return `<img src="${PHOTO_URL}?key=${encodeURIComponent(member.photoKey)}" class="avatar" style="width:${size}px;height:${size}px;object-fit:cover;" alt="${escapeHtml(member.name)}" />`;
+      // "v" fuerza al navegador a pedir la foto de nuevo cuando cambia, ya que
+      // la URL en sí es siempre la misma para cada persona.
+      const v = encodeURIComponent(member.photoUpdatedAt || '0');
+      return `<img src="${PHOTO_URL}?key=${encodeURIComponent(member.photoKey)}&v=${v}" class="avatar" style="width:${size}px;height:${size}px;object-fit:cover;" alt="${escapeHtml(member.name)}" />`;
     }
     return `<div class="avatar" style="background:${avatarColor(member.id)};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px;">${escapeHtml(initials(member.name))}</div>`;
   }
