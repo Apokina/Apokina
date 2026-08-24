@@ -1255,7 +1255,7 @@
           <div class="split-row">
             ${avatarHtml(m, 28)}
             <div class="name">${escapeHtml(m.name)}</div>
-            <input type="number" step="0.01" min="0" inputmode="decimal" data-role="custom-amount" data-member="${m.id}"
+            <input type="text" inputmode="decimal" data-role="custom-amount" data-member="${m.id}"
               value="${val}" placeholder="0,00" />
           </div>`;
         }).join('');
@@ -1297,7 +1297,7 @@
           </div>
           <div class="field">
             <label>Importe (€)</label>
-            <input type="number" step="0.01" min="0" inputmode="decimal" name="amount" placeholder="0,00" required value="${escapeHtml(draft.amount)}" />
+            <input type="text" inputmode="decimal" name="amount" placeholder="0,00" required value="${escapeHtml(draft.amount)}" />
           </div>
           <div class="field">
             <label>Fecha</label>
@@ -1392,7 +1392,7 @@
           </div>
           <div class="field">
             <label>Importe (€)</label>
-            <input type="number" step="0.01" min="0" inputmode="decimal" name="amount" value="${draft.amount}" required />
+            <input type="text" inputmode="decimal" name="amount" value="${draft.amount}" required />
           </div>
           <button class="btn btn-primary btn-block" type="submit" ${state.busy ? 'disabled' : ''}>
             ${state.busy ? 'Guardando…' : 'Marcar como liquidado'}
