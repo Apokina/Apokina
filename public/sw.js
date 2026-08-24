@@ -1,4 +1,4 @@
-const CACHE_NAME = 'gc-cache-v5';
+const CACHE_NAME = 'gc-cache-v4';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -65,11 +65,6 @@ self.addEventListener('push', (event) => {
       badge: '/icons/icon-192.png',
       tag: data.tag || 'apokina-movimiento',
       renotify: true,
-      data: {
-        itemType: data.itemType || null,
-        itemId: data.itemId || null,
-        url: data.url || '/',
-      },
     })
   );
 });
@@ -77,17 +72,10 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientsArr) => {
-      const targetUrl = event.notification.data && event.notification.data.url
-        ? event.notification.data.url : '/';
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
       const existing = clientsArr.find((c) => 'focus' in c);
-      if (existing) {
-        if ('navigate' in existing && targetUrl !== '/') {
-          try { await existing.navigate(targetUrl); } catch (e) {}
-        }
-        return existing.focus();
-      }
-      return self.clients.openWindow(targetUrl);
+      if (existing) return existing.focus();
+      return self.clients.openWindow('/');
     })
   );
 });
