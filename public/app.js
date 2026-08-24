@@ -1643,6 +1643,16 @@
         itemType: viewingItem.type,
         itemId: viewingItem.id,
         text,
+        // El backend debe usar esta marca para enviar un Web Push a
+        // los demás miembros con suscripción activa del grupo.
+        notifyPush: true,
+        notification: {
+          title: '💬 Nuevo comentario',
+          body: text,
+          tag: `chat-${viewingItem.type}-${viewingItem.id}`,
+          itemType: viewingItem.type,
+          itemId: viewingItem.id,
+        },
       });
       state.group = group;
       state.error = null;
